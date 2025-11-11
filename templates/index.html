@@ -3,28 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>校园活动平台</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>高校活动聚合平台</title>
+    <!-- 引入Bootstrap样式（无需本地下载，CDN直接加载） -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* 可选：自定义少量样式优化显示 */
+        .card {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: box-shadow 0.3s ease;
+        }
+        .card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+    </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <h1>校园活动信息聚合平台</h1>
-        
-        <!-- 活动列表 -->
-        <div class="row mt-4" id="activity-list">
-            <!-- 活动卡片会通过JavaScript动态加载到这里 -->
-            <div class="col-12">
-                <div class="text-center">
-                    <div class="spinner-border" role="status">
-                        <span class="visually-hidden">加载中...</span>
-                    </div>
-                    <p>正在加载活动数据...</p >
+    <div class="container mt-5 mb-5">
+        <h2 class="text-center mb-4">📚 校园多元活动列表</h2>
+        <!-- 活动列表容器（JS动态渲染） -->
+        <div class="row" id="activity-list">
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">加载中...</span>
                 </div>
+                <p class="mt-3 text-muted">正在获取最新活动数据...</p>
             </div>
         </div>
     </div>
 
-    <!-- 引入JavaScript -->
+    <!-- 引入前端交互JS（使用Flask静态文件路径） -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
