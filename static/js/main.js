@@ -1,14 +1,14 @@
-// Ò³Ãæ¼ÓÔØÍê³ÉºóÁ¢¼´¼ÓÔØ»î¶¯Êı¾İ
+// é¡µé¢åŠ è½½å®Œæˆåç«‹å³åŠ è½½æ´»åŠ¨æ•°æ®
 document.addEventListener('DOMContentLoaded', function() {
     loadActivities();
 });
 
-// ¼ÓÔØËùÓĞ»î¶¯Êı¾İ£¨µ÷ÓÃºó¶ËAPI£©
+// åŠ è½½æ‰€æœ‰æ´»åŠ¨æ•°æ®ï¼ˆè°ƒç”¨åç«¯APIï¼‰
 function loadActivities() {
     fetch('/api/activities')
         .then(response => {
             if (!response.ok) {
-                throw new Error('ÍøÂçÇëÇóÊ§°Ü');
+                throw new Error('ç½‘ç»œè¯·æ±‚å¤±è´¥');
             }
             return response.json();
         })
@@ -16,36 +16,36 @@ function loadActivities() {
             displayActivities(activities);
         })
         .catch(error => {
-            console.error('»ñÈ¡»î¶¯Êı¾İÊ§°Ü:', error);
+            console.error('è·å–æ´»åŠ¨æ•°æ®å¤±è´¥:', error);
             const container = document.getElementById('activity-list');
             container.innerHTML = `
                 <div class="col-12">
                     <div class="alert alert-danger text-center" role="alert">
-                        ? ¼ÓÔØÊ§°Ü£¬ÇëË¢ĞÂÒ³ÃæÖØÊÔ
+                        ? åŠ è½½å¤±è´¥ï¼Œè¯·åˆ·æ–°é¡µé¢é‡è¯•
                     </div>
                 </div>
             `;
         });
 }
 
-// äÖÈ¾»î¶¯ÁĞ±íµ½Ò³Ãæ
+// æ¸²æŸ“æ´»åŠ¨åˆ—è¡¨åˆ°é¡µé¢
 function displayActivities(activities) {
     const container = document.getElementById('activity-list');
-    container.innerHTML = ''; // Çå¿Õ¼ÓÔØ×´Ì¬
+    container.innerHTML = ''; // æ¸…ç©ºåŠ è½½çŠ¶æ€
 
-    // ÈôÃ»ÓĞ»î¶¯Êı¾İ£¬ÏÔÊ¾ÌáÊ¾
+    // è‹¥æ²¡æœ‰æ´»åŠ¨æ•°æ®ï¼Œæ˜¾ç¤ºæç¤º
     if (activities.length === 0) {
         container.innerHTML = `
             <div class="col-12">
                 <div class="alert alert-warning text-center" role="alert">
-                    ?? ÔİÎŞ»î¶¯Êı¾İ£¬¾´ÇëÆÚ´ı
+                    ?? æš‚æ— æ´»åŠ¨æ•°æ®ï¼Œæ•¬è¯·æœŸå¾…
                 </div>
             </div>
         `;
         return;
     }
 
-    // Ñ­»·äÖÈ¾Ã¿¸ö»î¶¯¿¨Æ¬
+    // å¾ªç¯æ¸²æŸ“æ¯ä¸ªæ´»åŠ¨å¡ç‰‡
     activities.forEach(activity => {
         const activityCard = `
             <div class="col-md-4 mb-4">
@@ -60,7 +60,7 @@ function displayActivities(activities) {
                             </small>
                         </p>
                         <button class="btn btn-sm btn-outline-primary w-100" onclick="joinActivity(${activity.id})">
-                            ÎÒÒª²Î¼Ó
+                            æˆ‘è¦å‚åŠ 
                         </button>
                     </div>
                 </div>
@@ -70,7 +70,7 @@ function displayActivities(activities) {
     });
 }
 
-// ±¨Ãû²Î¼Ó»î¶¯£¨µ÷ÓÃºó¶Ë±¨ÃûAPI£©
+// æŠ¥åå‚åŠ æ´»åŠ¨ï¼ˆè°ƒç”¨åç«¯æŠ¥åAPIï¼‰
 function joinActivity(activityId) {
     fetch(`/api/activities/${activityId}/join`, {
         method: 'POST',
@@ -80,15 +80,15 @@ function joinActivity(activityId) {
     })
     .then(response => {
         if (!response.ok) {
-            throw new Error('±¨ÃûÇëÇóÊ§°Ü');
+            throw new Error('æŠ¥åè¯·æ±‚å¤±è´¥');
         }
         return response.json();
     })
     .then(data => {
-        alert(data.message); // ÏÔÊ¾±¨Ãû³É¹¦ÌáÊ¾
+        alert(data.message); // æ˜¾ç¤ºæŠ¥åæˆåŠŸæç¤º
     })
     .catch(error => {
-        console.error('±¨ÃûÊ§°Ü:', error);
-        alert('? ±¨ÃûÊ§°Ü£¬ÇëÖØÊÔ');
+        console.error('æŠ¥åå¤±è´¥:', error);
+        alert('? æŠ¥åå¤±è´¥ï¼Œè¯·é‡è¯•');
     });
 }
