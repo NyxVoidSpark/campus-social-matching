@@ -4,7 +4,7 @@ from typing import List, Dict, Optional, Any
 
 # 初始化Flask应用
 app = Flask(__name__)
-CORS(app)  # 允许跨域请求
+CORS(app, supports_credentials=True)  # 支持跨域请求携带cookie
 
 # 模拟数据库 - 活动数据
 activities: List[Dict[str, Any]] = [
@@ -95,7 +95,6 @@ def create_activity() -> Any:
     }), 201
 
 
-# API路由：参加活动（报名逻辑）
 @app.route("/api/activities/<int:activity_id>/join", methods=["POST"])
 def join_activity(activity_id: int) -> Any:
     """参加活动"""
@@ -159,5 +158,6 @@ def leave_activity(activity_id: int) -> Any:
     }), 400
 
 
+# -------------------------- 运行应用 --------------------------
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=5000)
