@@ -2,7 +2,65 @@
 document.addEventListener('DOMContentLoaded', function() {
     loadActivities();
 });
+// 页面加载时检查登录状态
+document.addEventListener('DOMContentLoaded', function() {
+    checkLoginStatus();
+});
 
+// 检查登录状态
+function checkLoginStatus() {
+    fetch('/api/current-user')
+        .then(response => {
+            if (response.status === 401) {
+                // 未登录，跳转到登录页
+                window.location.href = '/login';
+                return;
+            }
+            return response.json();
+        })
+        .then(result => {
+            if (result.success) {
+                // 显示用户名
+                document.getElementById('usernameDisplay').textContent = `欢迎，${result.data.username}`;
+                // 加载活动列表
+                loadActivities();
+            }
+        })
+        .catch(error => {
+            console.error('检查登录状态失败:', error);
+            window.location.href = '/login';
+        });
+}
+
+// 登出功能
+function logout() {
+    fetch('/api/logout', { method: 'POST' })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                window.location.href = '/login';
+            }
+        });
+}
+
+// 保留原有活动加载、筛选、报名等功能
+function loadActivities() {
+    fetch('/api/activities')
+        .then(response => response.json())
+        .then(data => {
+            const activities = data.success ? data.data : [];
+            displayActivities(activities);
+        })
+        .catch(error => {
+            console.error('获取活动数据失败:', error);
+            const container = document.getElementById('activity-list');
+            container.innerHTML = `
+                <div class="col-12 error">
+                    <p>❌ 加载失败，请刷新页面重试</p >
+                </div>
+            `;
+        });
+}
 // 加载所有活动数据
 function loadActivities() {
     fetch('/api/activities')
@@ -22,7 +80,7 @@ function loadActivities() {
             const container = document.getElementById('activity-list');
             container.innerHTML = `
                 <div class="col-12 error">
-                    <p>❌ 加载失败，请刷新页面重试</p>
+                    <p>❌ 加载失败，请刷新页面重试</p >
                 </div>
             `;
         });
@@ -53,11 +111,11 @@ function displayActivities(activities) {
                         <h5 class="card-title">${activity.title}</h5>
                         <p class="card-text">
                             <span class="badge bg-secondary">${activity.type}</span>
-                        </p>
+                        </p >
                         <p class="card-text small">
                             🕒 时间：${activity.time}<br>
                             📍 地点：${activity.location}
-                        </p>
+                        </p >
                         <button class="btn btn-primary w-100" onclick="joinActivity(${activity.id})">
                             我要参加
                         </button>
