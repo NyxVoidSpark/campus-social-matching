@@ -1,11 +1,17 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+import os  # 新增：导入os模块（读取环境变量）
+from dotenv import load_dotenv  # 新增：导入读取.env文件的工具
+
+load_dotenv()  # 新增：加载本地.env文件的配置
 
 app = Flask(__name__)
 
-# 数据库配置 - 替换下面的密码为你自己设置的MySQL root密码
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:04822211858@localhost/college_platform?charset=utf8mb4'
+# 数据库配置 - 从环境变量读取密码（不再硬编码）
+app.config['SQLALCHEMY_DATABASE_URI'] = (
+    f'mysql+pymysql://root:{os.getenv("MYSQL_PASSWORD")}@localhost/college_platform?charset=utf8mb4'
+)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 初始化数据库
