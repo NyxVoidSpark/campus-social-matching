@@ -1,7 +1,3 @@
-// 页面加载完成后加载活动数据
-document.addEventListener('DOMContentLoaded', function() {
-    loadActivities();
-});
 // 页面加载时检查登录状态
 document.addEventListener('DOMContentLoaded', function() {
     checkLoginStatus();
@@ -43,24 +39,6 @@ function logout() {
         });
 }
 
-// 保留原有活动加载、筛选、报名等功能
-function loadActivities() {
-    fetch('/api/activities')
-        .then(response => response.json())
-        .then(data => {
-            const activities = data.success ? data.data : [];
-            displayActivities(activities);
-        })
-        .catch(error => {
-            console.error('获取活动数据失败:', error);
-            const container = document.getElementById('activity-list');
-            container.innerHTML = `
-                <div class="col-12 error">
-                    <p>❌ 加载失败，请刷新页面重试</p >
-                </div>
-            `;
-        });
-}
 // 加载所有活动数据
 function loadActivities() {
     fetch('/api/activities')
@@ -71,7 +49,6 @@ function loadActivities() {
             return response.json();
         })
         .then(data => {
-            // 适配整合后的API响应格式
             const activities = data.success ? data.data : [];
             displayActivities(activities);
         })
@@ -80,7 +57,7 @@ function loadActivities() {
             const container = document.getElementById('activity-list');
             container.innerHTML = `
                 <div class="col-12 error">
-                    <p>❌ 加载失败，请刷新页面重试</p >
+                    <p>❌ 加载失败，请刷新页面重试</p>
                 </div>
             `;
         });
@@ -111,11 +88,11 @@ function displayActivities(activities) {
                         <h5 class="card-title">${activity.title}</h5>
                         <p class="card-text">
                             <span class="badge bg-secondary">${activity.type}</span>
-                        </p >
+                        </p>
                         <p class="card-text small">
                             🕒 时间：${activity.time}<br>
                             📍 地点：${activity.location}
-                        </p >
+                        </p>
                         <button class="btn btn-primary w-100" onclick="joinActivity(${activity.id})">
                             我要参加
                         </button>
@@ -147,17 +124,13 @@ function filterActivities(type) {
         });
 }
 
-// 报名参加活动
+// 报名参加活动（更新版 - 使用当前登录用户）
 function joinActivity(activityId) {
-    // 模拟用户信息（实际项目中应从登录状态获取）
-    const user = { id: 1, name: "当前用户" };
-
     fetch(`/api/activities/${activityId}/join`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user: user })
+        }
     })
     .then(response => {
         if (!response.ok) {

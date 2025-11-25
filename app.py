@@ -3,6 +3,7 @@ from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 import uuid
 from datetime import datetime
+from typing import List, Dict, Optional, Any
 
 # 初始化Flask应用
 app = Flask(__name__)
@@ -25,7 +26,7 @@ users = [
 ]
 
 # 活动数据
-activities = [
+activities: List[Dict[str, Any]] = [
     {
         "id": 1,
         "title": "Java编程竞赛",
@@ -55,27 +56,26 @@ activities = [
     }
 ]
 
-
 # -------------------------- 辅助函数 --------------------------
 def find_user(username):
     """根据用户名查找用户"""
     return next((u for u in users if u["username"] == username), None)
 
-
 def find_user_by_id(user_id):
     """根据ID查找用户"""
     return next((u for u in users if u["id"] == user_id), None)
-
 
 def is_logged_in():
     """检查用户是否已登录"""
     return "user_id" in session
 
+def find_activity(activity_id: int) -> Optional[Dict[str, Any]]:
+    """根据ID查找活动"""
+    return next((a for a in activities if a["id"] == activity_id), None)
 
 def get_next_activity_id():
     """获取下一个活动ID"""
     return max(activity["id"] for activity in activities) + 1 if activities else 1
-
 
 # -------------------------- 页面路由 --------------------------
 @app.route("/")
@@ -85,7 +85,6 @@ def home():
         return redirect(url_for('login_page'))
     return render_template("index.html")
 
-
 @app.route("/login")
 def login_page():
     """登录页面"""
@@ -93,14 +92,12 @@ def login_page():
         return redirect(url_for('home'))
     return render_template("login.html")
 
-
 @app.route("/register")
 def register_page():
     """注册页面"""
     if is_logged_in():
         return redirect(url_for('home'))
     return render_template("register.html")
-
 
 # -------------------------- 认证API --------------------------
 @app.route("/api/register", methods=["POST"])
@@ -161,7 +158,6 @@ def register():
             "success": False,
             "error": f"服务器错误：{str(e)}"
         }), 500
-
 
 @app.route("/api/login", methods=["POST"])
 def login():
@@ -224,7 +220,6 @@ def login():
             "error": f"服务器错误：{str(e)}"
         }), 500
 
-
 @app.route("/api/logout", methods=["POST"])
 def logout():
     """用户登出API"""
@@ -239,7 +234,6 @@ def logout():
             "success": False,
             "error": f"服务器错误：{str(e)}"
         }), 500
-
 
 @app.route("/api/current-user", methods=["GET"])
 def get_current_user():
@@ -258,137 +252,140 @@ def get_current_user():
         }
     })
 
-
 # -------------------------- 活动API --------------------------
 @app.route("/api/activities", methods=["GET"])
-def get_activities():
-    """获取所有活动"""
-    try:
-        return jsonify({
-            "success": True,
-            "data": activities,
-            "count": len(activities)
-        })
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": f"服务器错误：{str(e)}"
-        }), 500
-
+def get_activities() -> Any:
+    """获取所有活动列表"""
+    return jsonify({
+        "success": True,
+        "data": activities,
+        "count": len(activities)
+    })
 
 @app.route("/api/activities/<int:activity_id>", methods=["GET"])
-def get_activity(activity_id):
-    """获取单个活动详情"""
-    try:
-        activity = next((a for a in activities if a["id"] == activity_id), None)
+def get_activity(activity_id: int) -> Any:
+    """根据ID获取单个活动详情"""
+    activity = find_activity(activity_id)
+    if activity:
+        return jsonify({
+            "success": True,
+            "data": activity
+        })
+    return jsonify({
+        "success": False,
+        "error": "活动不存在"
+    }), 404
 
-        if activity:
+@app.route("/api/activities", methods=["POST"])
+def create_activity() -> Any:
+    """创建新活动"""
+    if not request.json:
+        return jsonify({
+            "success": False,
+            "error": "请求数据为空或格式不正确"
+        }), 400
+
+    required_fields = ["title", "type", "time", "location"]
+    for field in required_fields:
+        if field not in request.json:
             return jsonify({
-                "success": True,
-                "data": activity
-            })
+                "success": False,
+                "error": f"缺少必要字段: {field}"
+            }), 400
+
+    # 生成新ID
+    new_id = get_next_activity_id()
+
+    new_activity = {
+        "id": new_id,
+        "title": request.json["title"],
+        "type": request.json["type"],
+        "time": request.json["time"],
+        "location": request.json["location"],
+        "participants": [],
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    activities.append(new_activity)
+    return jsonify({
+        "success": True,
+        "message": "活动创建成功",
+        "data": new_activity
+    }), 201
+
+@app.route("/api/activities/<int:activity_id>/join", methods=["POST"])
+def join_activity(activity_id: int) -> Any:
+    """参加活动"""
+    if not is_logged_in():
+        return jsonify({
+            "success": False,
+            "error": "请先登录"
+        }), 401
+
+    activity = find_activity(activity_id)
+    if not activity:
         return jsonify({
             "success": False,
             "error": "活动不存在"
         }), 404
-    except Exception as e:
+
+    # 获取当前登录用户信息
+    current_user = {
+        "id": session["user_id"],
+        "name": session["username"]
+    }
+
+    # 检查是否已报名
+    if any(p["id"] == current_user["id"] for p in activity["participants"]):
         return jsonify({
             "success": False,
-            "error": f"服务器错误：{str(e)}"
-        }), 500
+            "error": "您已报名该活动"
+        }), 400
 
-
-@app.route("/api/activities/<int:activity_id>/join", methods=["POST"])
-def join_activity(activity_id):
-    """参加活动"""
-    try:
-        if not is_logged_in():
-            return jsonify({
-                "success": False,
-                "error": "请先登录"
-            }), 401
-
-        activity = next((a for a in activities if a["id"] == activity_id), None)
-
-        if not activity:
-            return jsonify({
-                "success": False,
-                "error": "活动不存在"
-            }), 404
-
-        # 获取当前登录用户信息
-        current_user = {
-            "id": session["user_id"],
-            "name": session["username"]
+    activity["participants"].append(current_user)
+    return jsonify({
+        "success": True,
+        "message": f"成功报名活动: {activity['title']}",
+        "data": {
+            "activity_id": activity_id,
+            "participants_count": len(activity["participants"])
         }
-
-        # 检查是否已报名
-        if any(p["id"] == current_user["id"] for p in activity["participants"]):
-            return jsonify({
-                "success": False,
-                "error": "您已报名该活动"
-            }), 400
-
-        # 添加参与者
-        activity["participants"].append(current_user)
-
-        return jsonify({
-            "success": True,
-            "message": f"成功报名活动: {activity['title']}",
-            "data": {
-                "activity_id": activity_id,
-                "participants_count": len(activity["participants"])
-            }
-        })
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": f"服务器错误：{str(e)}"
-        }), 500
-
+    })
 
 @app.route("/api/activities/<int:activity_id>/leave", methods=["POST"])
-def leave_activity(activity_id):
+def leave_activity(activity_id: int) -> Any:
     """取消参加活动"""
-    try:
-        if not is_logged_in():
-            return jsonify({
-                "success": False,
-                "error": "请先登录"
-            }), 401
-
-        activity = next((a for a in activities if a["id"] == activity_id), None)
-
-        if not activity:
-            return jsonify({
-                "success": False,
-                "error": "活动不存在"
-            }), 404
-
-        # 查找并移除参与者
-        user_id = session["user_id"]
-        for i, participant in enumerate(activity["participants"]):
-            if participant["id"] == user_id:
-                activity["participants"].pop(i)
-                return jsonify({
-                    "success": True,
-                    "message": f"已取消报名活动: {activity['title']}",
-                    "data": {
-                        "activity_id": activity_id,
-                        "participants_count": len(activity["participants"])
-                    }
-                })
-
+    if not is_logged_in():
         return jsonify({
             "success": False,
-            "error": "您未报名该活动"
-        }), 400
-    except Exception as e:
+            "error": "请先登录"
+        }), 401
+
+    activity = find_activity(activity_id)
+    if not activity:
         return jsonify({
             "success": False,
-            "error": f"服务器错误：{str(e)}"
-        }), 500
+            "error": "活动不存在"
+        }), 404
 
+    # 查找并移除参与者
+    user_id = session["user_id"]
+    for i, participant in enumerate(activity["participants"]):
+        if participant["id"] == user_id:
+            activity["participants"].pop(i)
+            return jsonify({
+                "success": True,
+                "message": f"已取消报名活动: {activity['title']}",
+                "data": {
+                    "activity_id": activity_id,
+                    "participants_count": len(activity["participants"])
+                }
+            })
+
+    return jsonify({
+        "success": False,
+        "error": "您未报名该活动"
+    }), 400
 
 # -------------------------- 运行应用 --------------------------
 if __name__ == '__main__':
