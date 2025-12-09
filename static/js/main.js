@@ -726,19 +726,8 @@ function previewAvatar(input) {
 
 // 上传头像（需额外实现后端存储逻辑，此处仅为前端示例）
 function uploadAvatar() {
-    const fileInput = document.getElementById('avatarUploadDetailed');
-    if (!fileInput.files[0]) {
-        alert('请先选择图片文件');
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append('avatar', fileInput.files[0]);
-
-    // 后端需实现头像存储接口，此处仅为示例
-    alert('头像上传功能需后端额外配置存储服务，可对接本地存储或云存储');
+    alert('请到个人中心页面上传头像');
 }
-
 // 修改密码（前端示例，后端需额外实现）
 function updatePassword() {
     const currentPassword = document.getElementById('currentPassword').value;
