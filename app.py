@@ -8,6 +8,8 @@ import uuid
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from werkzeug.utils import secure_filename
+import json
+from difflib import SequenceMatcher
 
 # 加载环境变量
 load_dotenv()
@@ -24,9 +26,10 @@ app.config['SQLALCHEMY_DATABASE_URI'] = (
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 添加配置文件上传
-app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024  # 2MB限制
-app.config['UPLOAD_FOLDER'] = 'static/images/uploads'
-app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
+app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20MB 限制
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
+# 扩展允许类型：图片/视频/文档/压缩包
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'pdf', 'docx', 'pptx', 'xlsx', 'zip'}
 
 db = SQLAlchemy(app)
 
@@ -60,6 +63,12 @@ class Activity(db.Model):
     description = db.Column(db.Text, default='')  # 活动描述（文件一保留）
     initiator_id = db.Column(db.String(8), db.ForeignKey('user.id'))  # 发起人ID
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))  # 创建时间
+    # 扩展支持：人数上限、费用、报名截止、活动状态与签到二维码令牌
+    participants_limit = db.Column(db.Integer, nullable=True)
+    fee = db.Column(db.String(50), default='')
+    signup_deadline = db.Column(db.String(50), default='')
+    status = db.Column(db.String(30), default='upcoming')  # upcoming / ongoing / finished / cancelled
+    qr_token = db.Column(db.String(64), unique=True, nullable=True)
     # 关联参与者（文件一保留）
     participants = db.relationship('User', secondary='activity_participants', backref=db.backref('joined_activities'))
 
@@ -87,6 +96,163 @@ class Follow(db.Model):
     follower_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
     followed_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
     __table_args__ = (db.UniqueConstraint('follower_id', 'followed_id', name='_follower_followed_uc'),)
+
+
+# -------------------------- 帖子与板块模板（结构化信息） --------------------------
+# 栏目
+POST_CATEGORIES = [
+    "教学科研",
+    "校园活动",
+    "生活服务",
+    "求职就业",
+    "学术交流",
+    "兴趣社群",
+    "求助问答",
+    "校园资讯"
+]
+
+# 模板定义（前端展示用）
+POST_TEMPLATES = {
+    '教学科研': {
+        'fields': [
+            {'name': 'course_code', 'label': '课程号', 'type': 'text', 'required': False},
+            {'name': 'teacher', 'label': '教师姓名', 'type': 'text', 'required': False},
+            {'name': 'credit_ack', 'label': '学分认定', 'type': 'checkbox', 'required': False}
+        ]
+    },
+    '校园活动': {
+        'fields': [
+            {'name': 'time', 'label': '时间', 'type': 'text', 'required': True},
+            {'name': 'location', 'label': '地点', 'type': 'text', 'required': True},
+            {'name': 'participants_limit', 'label': '人数上限', 'type': 'number', 'required': False},
+            {'name': 'fee', 'label': '费用', 'type': 'text', 'required': False},
+            {'name': 'signup_link', 'label': '报名链接', 'type': 'text', 'required': False}
+        ]
+    },
+    '生活服务': {
+        'fields': [
+            {'name': 'trade_type', 'label': '交易类型', 'type': 'text', 'required': False}
+        ]
+    },
+    '求职就业': {
+        'fields': [
+            {'name': 'company', 'label': '企业名称', 'type': 'text', 'required': False},
+            {'name': 'enterprise_certified', 'label': '企业认证', 'type': 'checkbox', 'required': False}
+        ]
+    },
+    '兴趣社群': {
+        'fields': [
+            {'name': 'group_name', 'label': '兴趣组名', 'type': 'text', 'required': False}
+        ]
+    },
+    '互助问答': {
+        'fields': [
+            {'name': 'reward_points', 'label': '悬赏积分', 'type': 'number', 'required': False},
+            {'name': 'anonymous', 'label': '匿名发布', 'type': 'checkbox', 'required': False}
+        ]
+    },
+    '校园资讯': {
+        'fields': [
+            {'name': 'scope', 'label': '推送范围', 'type': 'text', 'required': False},
+            {'name': 'pin', 'label': '置顶', 'type': 'checkbox', 'required': False}
+        ]
+    }
+}
+
+
+class Post(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    title = db.Column(db.String(200), nullable=False)
+    category = db.Column(db.String(50), nullable=False)
+    content = db.Column(db.Text, default='')
+    is_markdown = db.Column(db.Boolean, default=False)
+    tags = db.Column(db.String(200), default='')
+    media = db.Column(db.Text, default='')  # JSON list: [{'url':..., 'filename':...}, ...]
+    metadata_json = db.Column(db.Text, default='')  # JSON for template fields
+    author_id = db.Column(db.String(8), db.ForeignKey('user.id'))
+    is_official = db.Column(db.Boolean, default=False)
+    org_name = db.Column(db.String(120), default='')
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+class Group(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(120), unique=True, nullable=False)
+    description = db.Column(db.Text, default='')
+    creator_id = db.Column(db.String(8), db.ForeignKey('user.id'))
+    # 小组类型：public / review / private
+    type = db.Column(db.String(20), default='public')
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+# 小组成员多对多
+group_members = db.Table(
+    'group_members',
+    db.Column('user_id', db.String(8), db.ForeignKey('user.id'), primary_key=True),
+    db.Column('group_id', db.Integer, db.ForeignKey('group.id'), primary_key=True)
+)
+
+# 小组加入申请
+class MembershipRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
+    group_id = db.Column(db.Integer, db.ForeignKey('group.id'), nullable=False)
+    message = db.Column(db.String(300), default='')
+    status = db.Column(db.String(20), default='pending')  # pending / approved / rejected
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+# 评论（支持楼中楼）
+class Comment(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
+    author_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)
+    is_pinned = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+# 反应/互动（点赞/收藏/转发/有用等）
+class Reaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=True)
+    comment_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)
+    type = db.Column(db.String(30), nullable=False)  # like, favorite, repost, useful, unuseful, reward
+    metadata_json = db.Column(db.String(200), default='')
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+# 组队招募
+class TeamRecruit(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, default='')
+    skills = db.Column(db.String(200), default='')  # 逗号分隔的技能标签
+    time_frame = db.Column(db.String(100), default='')
+    creator_id = db.Column(db.String(8), db.ForeignKey('user.id'))
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+# 组队成员多对多
+team_members = db.Table(
+    'team_members',
+    db.Column('user_id', db.String(8), db.ForeignKey('user.id'), primary_key=True),
+    db.Column('team_id', db.Integer, db.ForeignKey('team_recruit.id'), primary_key=True)
+)
+
+
+# 积分流水记录
+class PointsLedger(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
+    change = db.Column(db.Integer, nullable=False)
+    reason = db.Column(db.String(200), default='')
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+# 给 User 添加常用关系属性
+User.groups = db.relationship('Group', secondary=group_members, backref=db.backref('members'))
 
 
 # 创建数据库表（启动时自动执行）
@@ -126,6 +292,26 @@ def get_next_activity_id():
 def allowed_file(filename):
     """检查文件扩展名是否允许"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+
+def similar_ratio(a: str, b: str) -> float:
+    return SequenceMatcher(None, a or '', b or '').ratio()
+
+
+def find_similar_posts(title: str, content: str, threshold: float = 0.75):
+    combined = (title or '') + '\n' + (content or '')
+    candidates = []
+    for p in Post.query.all():
+        score = similar_ratio(combined, (p.title or '') + '\n' + (p.content or ''))
+        if score >= threshold:
+            candidates.append({'post': {
+                'id': p.id,
+                'title': p.title,
+                'category': p.category,
+                'created_at': p.created_at
+            }, 'score': score})
+    candidates.sort(key=lambda x: x['score'], reverse=True)
+    return candidates
 
 
 # -------------------------- 页面路由（整合后） --------------------------
@@ -617,6 +803,271 @@ def recommend_activities():
             })
 
     return jsonify({'success': True, 'activities': recommended}), 200
+
+
+# -------------------------- 帖子与结构化发布 API --------------------------
+@app.route('/api/post-templates', methods=['GET'])
+def get_post_templates():
+    return jsonify({'success': True, 'data': POST_TEMPLATES, 'categories': POST_CATEGORIES})
+
+
+@app.route('/api/posts/similar', methods=['GET'])
+def api_similar_posts():
+    title = request.args.get('title', '')
+    content = request.args.get('content', '')
+    try:
+        threshold = float(request.args.get('threshold', 0.75))
+    except Exception:
+        threshold = 0.75
+    candidates = find_similar_posts(title, content, threshold)
+    return jsonify({'success': True, 'data': candidates, 'count': len(candidates)})
+
+
+@app.route('/api/posts', methods=['GET'])
+def list_posts_api():
+    category = request.args.get('category')
+    tag = request.args.get('tag')
+    query = Post.query.order_by(Post.id.desc())
+    if category:
+        query = query.filter(Post.category == category)
+    results = []
+    for p in query.all():
+        tags = p.tags.split(',') if p.tags else []
+        if tag and tag not in tags:
+            continue
+        media = []
+        try:
+            media = json.loads(p.media) if p.media else []
+        except Exception:
+            media = []
+        metadata = {}
+        try:
+            metadata = json.loads(p.metadata_json) if p.metadata_json else {}
+        except Exception:
+            metadata = {}
+        results.append({
+            'id': p.id,
+            'title': p.title,
+            'category': p.category,
+            'content': p.content,
+            'is_markdown': p.is_markdown,
+            'tags': tags,
+            'media': media,
+            'metadata': metadata,
+            'author_id': p.author_id,
+            'is_official': p.is_official,
+            'org_name': p.org_name,
+            'created_at': p.created_at
+        })
+    return jsonify({'success': True, 'data': results, 'count': len(results)})
+
+
+@app.route('/api/posts/<int:post_id>', methods=['GET'])
+def get_post_api(post_id: int):
+    p = Post.query.get(post_id)
+    if not p:
+        return jsonify({'success': False, 'error': '帖子不存在'}), 404
+    try:
+        media = json.loads(p.media) if p.media else []
+    except Exception:
+        media = []
+    try:
+        metadata = json.loads(p.metadata_json) if p.metadata_json else {}
+    except Exception:
+        metadata = {}
+    return jsonify({'success': True, 'data': {
+        'id': p.id,
+        'title': p.title,
+        'category': p.category,
+        'content': p.content,
+        'is_markdown': p.is_markdown,
+        'tags': p.tags.split(',') if p.tags else [],
+        'media': media,
+        'metadata': metadata,
+        'author_id': p.author_id,
+        'is_official': p.is_official,
+        'org_name': p.org_name,
+        'created_at': p.created_at
+    }})
+
+
+@app.route('/api/posts', methods=['POST'])
+def create_post_api():
+    if not is_logged_in():
+        return jsonify({'success': False, 'error': '请先登录'}), 401
+
+    # 支持 JSON 或 multipart/form-data
+    title = None
+    category = None
+    content = ''
+    is_markdown = False
+    tags = []
+    metadata = {}
+    uploaded_media = []
+
+    if request.is_json:
+        data = request.get_json()
+        title = data.get('title')
+        category = data.get('category')
+        content = data.get('content', '')
+        is_markdown = bool(data.get('is_markdown', False))
+        tags = data.get('tags', [])
+        metadata = data.get('metadata', {})
+        force = bool(data.get('force', False))
+    else:
+        title = request.form.get('title')
+        category = request.form.get('category')
+        content = request.form.get('content', '')
+        is_markdown = request.form.get('is_markdown', 'false').lower() == 'true'
+        tags = [t.strip() for t in (request.form.get('tags', '') or '').split(',') if t.strip()]
+        force = request.form.get('force', 'false').lower() == 'true'
+        # metadata字段可以通过JSON字符串传入
+        try:
+            metadata = json.loads(request.form.get('metadata', '{}'))
+        except Exception:
+            metadata = {}
+
+        # 文件
+        if 'files' in request.files:
+            files = request.files.getlist('files')
+            for f in files:
+                if f and allowed_file(f.filename):
+                    fname = secure_filename(f.filename)
+                    unique = f"{uuid.uuid4().hex[:8]}_{fname}"
+                    save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique)
+                    f.save(save_path)
+                    uploaded_media.append({'url': f"/{save_path.replace('\\', '/')}", 'filename': fname})
+
+    if not title or not category:
+        return jsonify({'success': False, 'error': '缺少 title 或 category'}), 400
+
+    if category not in POST_CATEGORIES:
+        return jsonify({'success': False, 'error': '无效的分类'}), 400
+
+    # 检测相似度
+    duplicates = find_similar_posts(title, content)
+    if duplicates and not force:
+        return jsonify({'success': False, 'error': '可能存在相似信息，建议合并或查看原帖', 'possible_duplicates': duplicates}), 409
+
+    # 创建帖子
+    p = Post(
+        title=title,
+        category=category,
+        content=content,
+        is_markdown=is_markdown,
+        tags=','.join(tags),
+        media=json.dumps(uploaded_media, ensure_ascii=False),
+        metadata_json=json.dumps(metadata, ensure_ascii=False),
+        author_id=session.get('user_id'),
+        is_official=False,
+        org_name=''
+    )
+    db.session.add(p)
+    db.session.commit()
+
+    return jsonify({'success': True, 'message': '发布成功', 'data': {'id': p.id}}), 201
+
+
+@app.route('/api/groups', methods=['GET', 'POST'])
+def api_groups():
+    if request.method == 'GET':
+        gs = Group.query.order_by(Group.id.desc()).all()
+        return jsonify({'success': True, 'data': [{'id': g.id, 'name': g.name, 'description': g.description} for g in gs]})
+
+    # 创建小组
+    if not is_logged_in():
+        return jsonify({'success': False, 'error': '请先登录'}), 401
+    data = request.get_json() or {}
+    name = data.get('name')
+    desc = data.get('description', '')
+    if not name:
+        return jsonify({'success': False, 'error': '需要提供小组名称'}), 400
+    if Group.query.filter_by(name=name).first():
+        return jsonify({'success': False, 'error': '小组名称已存在'}), 409
+    g = Group(name=name, description=desc, creator_id=session.get('user_id'))
+    db.session.add(g)
+    db.session.commit()
+    return jsonify({'success': True, 'message': '小组创建成功', 'data': {'id': g.id, 'name': g.name}}), 201
+
+
+# 帖子互动：点赞/收藏/转发/有用/打赏等（简单记录）
+@app.route('/api/posts/<int:post_id>/react', methods=['POST'])
+def post_react(post_id: int):
+    if not is_logged_in():
+        return jsonify({'success': False, 'error': '未登录'}), 401
+    p = Post.query.get(post_id)
+    if not p:
+        return jsonify({'success': False, 'error': '帖子不存在'}), 404
+    data = request.get_json() or {}
+    rtype = data.get('type')
+    if not rtype:
+        return jsonify({'success': False, 'error': '缺少 type 字段'}), 400
+    # 记录反应
+    try:
+        react = Reaction(user_id=session.get('user_id'), post_id=post_id, type=rtype, metadata_json=json.dumps(data.get('metadata', {}), ensure_ascii=False))
+        db.session.add(react)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '已记录互动'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'服务器错误：{str(e)}'}), 500
+
+
+# 获取帖子评论（含嵌套）
+@app.route('/api/posts/<int:post_id>/comments', methods=['GET'])
+def get_post_comments(post_id: int):
+    p = Post.query.get(post_id)
+    if not p:
+        return jsonify({'success': False, 'error': '帖子不存在'}), 404
+    # 获取所有评论并构建树形
+    all_comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.asc()).all()
+    comments_by_id = {c.id: {
+        'id': c.id,
+        'post_id': c.post_id,
+        'author_id': c.author_id,
+        'content': c.content,
+        'parent_id': c.parent_id,
+        'is_pinned': c.is_pinned,
+        'created_at': c.created_at,
+        'children': []
+    } for c in all_comments}
+
+    roots = []
+    for c in comments_by_id.values():
+        if c['parent_id'] and c['parent_id'] in comments_by_id:
+            comments_by_id[c['parent_id']]['children'].append(c)
+        else:
+            roots.append(c)
+
+    return jsonify({'success': True, 'data': roots, 'count': len(all_comments)}), 200
+
+
+# 提交评论或回复
+@app.route('/api/posts/<int:post_id>/comments', methods=['POST'])
+def post_comment(post_id: int):
+    if not is_logged_in():
+        return jsonify({'success': False, 'error': '请先登录'}), 401
+    p = Post.query.get(post_id)
+    if not p:
+        return jsonify({'success': False, 'error': '帖子不存在'}), 404
+    data = request.get_json() or {}
+    content = data.get('content', '').strip()
+    parent_id = data.get('parent_id')
+    if not content:
+        return jsonify({'success': False, 'error': '评论内容不能为空'}), 400
+    # 如果 parent_id 提供，检查父评论是否存在
+    if parent_id:
+        parent = Comment.query.get(parent_id)
+        if not parent or parent.post_id != post_id:
+            return jsonify({'success': False, 'error': '父评论不存在'}), 400
+    try:
+        c = Comment(post_id=post_id, author_id=session.get('user_id'), content=content, parent_id=parent_id)
+        db.session.add(c)
+        db.session.commit()
+        return jsonify({'success': True, 'message': '评论已发布', 'data': {'id': c.id}}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'服务器错误：{str(e)}'}), 500
 
 
 # -------------------------- 个人中心API（文件二新增） --------------------------

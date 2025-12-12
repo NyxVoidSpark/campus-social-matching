@@ -2,6 +2,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     checkLoginStatus();
     setupEventListeners();
+    initPostsUI();
 });
 
 // 全局变量
@@ -765,3 +766,260 @@ function updatePassword() {
         if (modal) modal.hide();
     }
 }
+
+// ------------------- 帖子与小组相关功能 -------------------
+function initPostsUI(){
+    // 仅在首页存在发布表单时初始化
+    if(!document.getElementById('postForm')) return;
+
+    // 加载模板与分类
+    fetch('/api/post-templates')
+        .then(r => r.json())
+        .then(res => {
+            if(res.success){
+                const categories = res.categories || Object.keys(res.data || {});
+                const sel = document.getElementById('postCategory');
+                sel.innerHTML = '<option value="">请选择分类</option>';
+                categories.forEach(c => {
+                    const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o);
+                });
+
+                // 如果页面存在顶部的活动类型按钮区域，则用相同分类填充它
+                const activityBtnGroup = document.getElementById('activityTypeButtons');
+                if(activityBtnGroup){
+                    activityBtnGroup.innerHTML = '';
+                    // 全部按钮
+                    const allBtn = document.createElement('button');
+                    allBtn.type = 'button';
+                    allBtn.className = 'btn btn-primary active';
+                    allBtn.textContent = '全部';
+                    allBtn.addEventListener('click', function(){
+                        // 视觉高亮
+                        Array.from(activityBtnGroup.children).forEach(b=>b.classList.remove('active'));
+                        this.classList.add('active');
+                        filterActivities('all');
+                        loadPostsList();
+                    });
+                    activityBtnGroup.appendChild(allBtn);
+
+                    // 每个分类对应一个按钮（点击既筛选活动也筛选信息流）
+                    categories.forEach(cat => {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'btn btn-outline-primary';
+                        btn.textContent = cat;
+                        btn.addEventListener('click', function(){
+                            Array.from(activityBtnGroup.children).forEach(b=>b.classList.remove('active'));
+                            this.classList.add('active');
+                            filterActivities(cat);
+                            loadPostsList(cat);
+                        });
+                        activityBtnGroup.appendChild(btn);
+                    });
+                }
+
+                // 当分类改变时渲染模板字段
+                sel.addEventListener('change', function(){ renderTemplateFields(res.data[this.value]); });
+            }
+            // 首次加载帖子列表
+            loadPostsList();
+        }).catch(err=>{ console.error('加载模板失败', err); loadPostsList(); });
+
+    // 绑定检查相似按钮
+    const chk = document.getElementById('checkSimilarBtn');
+    if(chk) chk.addEventListener('click', function(){ checkSimilar(false); });
+
+    // 绑定发布表单提交
+    const form = document.getElementById('postForm');
+    form.addEventListener('submit', function(e){
+        e.preventDefault();
+        submitPost();
+    });
+
+    // 绑定创建小组
+    const createBtn = document.getElementById('createGroupBtn');
+    if(createBtn) createBtn.addEventListener('click', createGroup);
+}
+
+function renderTemplateFields(template){
+    const container = document.getElementById('postMetadata');
+    container.innerHTML = '';
+    if(!template || !template.fields) return;
+    template.fields.forEach(f => {
+        let html = '';
+        if(f.type === 'checkbox'){
+            html = `<div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="meta_${f.name}" name="${f.name}"><label class="form-check-label" for="meta_${f.name}">${f.label}</label></div>`;
+        } else {
+            html = `<div class="mb-2"><label class="form-label">${f.label}</label><input class="form-control" id="meta_${f.name}" name="${f.name}" type="${f.type}"></div>`;
+        }
+        container.innerHTML += html;
+    });
+}
+
+function collectMetadata(){
+    const container = document.getElementById('postMetadata');
+    const inputs = container.querySelectorAll('input');
+    const data = {};
+    inputs.forEach(inp => {
+        if(inp.type === 'checkbox') data[inp.name.replace(/^meta_/, '')] = inp.checked;
+        else data[inp.name.replace(/^meta_/, '')] = inp.value;
+    });
+    return data;
+}
+
+function checkSimilar(showAlert){
+    const title = document.getElementById('postTitle').value || '';
+    const content = document.getElementById('postContent').value || '';
+    if(!title && !content){ if(showAlert) alert('请填写标题或内容后再检查相似'); return; }
+    fetch(`/api/posts/similar?title=${encodeURIComponent(title)}&content=${encodeURIComponent(content)}`)
+        .then(r=>r.json()).then(res=>{
+            if(res.success && res.count>0){
+                const msg = res.data.map(d=>`${d.post.title} (score:${(d.score*100).toFixed(0)}%)`).join('\n');
+                if(showAlert) alert('发现可能相似的信息:\n'+msg);
+                const msgDiv = document.getElementById('postFormMsg');
+                if(msgDiv) msgDiv.innerHTML = `<div class="alert alert-warning">检测到相似信息，建议先查看或合并：<pre style="white-space:pre-wrap">${msg}</pre></div>`;
+            } else {
+                const msgDiv = document.getElementById('postFormMsg'); if(msgDiv) msgDiv.innerHTML = '<div class="alert alert-success">未检测到明显重复</div>';
+            }
+        }).catch(err=>{ console.error('相似检测失败', err); });
+}
+
+function submitPost(){
+    const title = document.getElementById('postTitle').value || '';
+    const category = document.getElementById('postCategory').value || '';
+    const content = document.getElementById('postContent').value || '';
+    const tags = document.getElementById('postTags').value || '';
+    const metadata = collectMetadata();
+    const files = document.getElementById('postFiles').files;
+    const fd = new FormData();
+    fd.append('title', title); fd.append('category', category); fd.append('content', content); fd.append('tags', tags);
+    fd.append('metadata', JSON.stringify(metadata));
+    for(let i=0;i<files.length;i++) fd.append('files', files[i]);
+
+    fetch('/api/posts', { method: 'POST', body: fd })
+        .then(r=>r.json().then(j=>({status:r.status, body:j}))).then(res=>{
+            const msgDiv = document.getElementById('postFormMsg');
+            if(res.status === 201){ msgDiv.innerHTML = '<div class="alert alert-success">发布成功</div>'; document.getElementById('postForm').reset(); loadPostsList(); }
+            else if(res.status === 409){ msgDiv.innerHTML = `<div class="alert alert-warning">${res.body.error || '可能存在重复'}<br><small>请先检查原帖</small></div>`; }
+            else { msgDiv.innerHTML = `<div class="alert alert-danger">发布失败：${res.body.error || '未知错误'}</div>`; }
+        }).catch(err=>{ console.error('发布失败', err); document.getElementById('postFormMsg').innerHTML = '<div class="alert alert-danger">发布失败，请稍后再试</div>'; });
+}
+
+function loadPostsList(category){
+    let url = '/api/posts';
+    if(category) url += `?category=${encodeURIComponent(category)}`;
+    fetch(url)
+        .then(r=>r.json())
+        .then(res=>{
+            const list = document.getElementById('postsList');
+            list.innerHTML = '';
+            if(!res.success || res.count===0){ list.innerHTML = '<div class="text-muted p-3">暂无信息</div>'; return; }
+            res.data.forEach(p=>{
+                const item = document.createElement('a');
+                item.className = 'list-group-item list-group-item-action';
+                item.href = 'javascript:void(0);';
+                const badge = p.is_official ? '<span class="badge bg-danger ms-2">官方</span>' : '';
+                item.innerHTML = `<div class="d-flex justify-content-between"><div><strong>${escapeHtml(p.title)}</strong> ${badge}<div class="small text-muted">${escapeHtml(p.category)} · ${escapeHtml(p.created_at)}</div></div></div><div class="mt-2">${escapeHtml(p.content || '')}</div>`;
+                item.addEventListener('click', function(){ showPost(p.id); });
+                list.appendChild(item);
+            });
+        }).catch(err=>{ console.error('加载帖子失败', err); });
+}
+
+function showPost(postId){
+    fetch(`/api/posts/${postId}`)
+        .then(r=>r.json())
+        .then(res=>{
+            if(!res.success){ alert('帖子不存在或已删除'); return; }
+            const p = res.data;
+            document.getElementById('postDetailTitle').textContent = p.title;
+            const body = document.getElementById('postDetailBody');
+            let html = `<div class="mb-2 small text-muted">${escapeHtml(p.category)} · ${escapeHtml(p.created_at)}</div>`;
+            html += `<div class="mb-3">${escapeHtml(p.content || '')}</div>`;
+            if(p.media && p.media.length){
+                html += '<div class="mb-2">';
+                p.media.forEach(m=>{ html += `<div><a href="${m.url}" target="_blank">${escapeHtml(m.filename)}</a></div>`; });
+                html += '</div>';
+            }
+            html += `<div id="postInteractions_${p.id}" class="mt-3"><button class="btn btn-sm btn-outline-primary me-2" onclick="reactPost(${p.id}, 'like')">点赞</button><button class="btn btn-sm btn-outline-secondary me-2" onclick="reactPost(${p.id}, 'favorite')">收藏</button></div>`;
+            html += `<div class="mt-3"><h6>评论</h6><div id="commentsContainer_${p.id}">加载中...</div><div class="mt-2"><textarea id="newComment_${p.id}" class="form-control" rows="3" placeholder="写评论..."></textarea><div class="d-flex gap-2 mt-2"><button class="btn btn-sm btn-primary" onclick="submitComment(${p.id}, null)">发表评论</button></div></div></div>`;
+            body.innerHTML = html;
+            const modalEl = document.getElementById('postDetailModal');
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+            // 加载评论
+            loadComments(postId);
+        }).catch(err=>{ console.error('获取帖子详情失败', err); alert('获取帖子详情失败'); });
+}
+
+function reactPost(postId, type){
+    fetch(`/api/posts/${postId}/react`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({type}) })
+        .then(r=>r.json().then(j=>({status:r.status, body:j}))).then(res=>{
+            if(res.status===401){ alert('请先登录后再互动'); window.location.href='/login'; return; }
+            if(res.status===200){ alert('操作成功'); } else { alert(res.body.error || '互动失败'); }
+        }).catch(err=>{ console.error('互动失败', err); alert('互动失败'); });
+}
+
+function loadComments(postId){
+    fetch(`/api/posts/${postId}/comments`)
+        .then(r=>r.json())
+        .then(res=>{
+            const container = document.getElementById(`commentsContainer_${postId}`);
+            if(!container) return;
+            if(!res.success || res.count===0){ container.innerHTML = '<div class="text-muted">暂无评论</div>'; return; }
+            function renderList(list, depth){
+                let html = '';
+                list.forEach(c=>{
+                    html += `<div class="mb-2" style="margin-left:${(depth||0)*18}px; padding:6px; border-left:1px solid #eee;">`;
+                    html += `<div class="small text-muted">用户:${escapeHtml(c.author_id)} · ${escapeHtml(c.created_at)}</div>`;
+                    html += `<div class="mt-1">${escapeHtml(c.content)}</div>`;
+                    html += `<div class="mt-1"><button class="btn btn-sm btn-link" onclick="promptReply(${postId}, ${c.id})">回复</button></div>`;
+                    if(c.children && c.children.length){ html += renderList(c.children, (depth||0)+1); }
+                    html += `</div>`;
+                });
+                return html;
+            }
+            container.innerHTML = renderList(res.data, 0);
+        }).catch(err=>{ console.error('加载评论失败', err); const container = document.getElementById(`commentsContainer_${postId}`); if(container) container.innerHTML = '<div class="text-danger">加载评论失败</div>'; });
+}
+
+function submitComment(postId, parentId){
+    const ta = document.getElementById(`newComment_${postId}`);
+    if(!ta) return;
+    const content = ta.value.trim();
+    if(!content){ alert('请填写评论内容'); return; }
+    fetch(`/api/posts/${postId}/comments`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({content, parent_id: parentId}) })
+        .then(r=>r.json().then(j=>({status:r.status, body:j}))).then(res=>{
+            if(res.status===401){ alert('请先登录'); window.location.href='/login'; return; }
+            if(res.status===201){ ta.value=''; loadComments(postId); }
+            else { alert(res.body.error || '发表评论失败'); }
+        }).catch(err=>{ console.error('发表评论失败', err); alert('发表评论失败'); });
+}
+
+function promptReply(postId, parentId){
+    const reply = prompt('输入回复内容：');
+    if(reply && reply.trim()){
+        // 为快速实现直接 POST
+        fetch(`/api/posts/${postId}/comments`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({content: reply.trim(), parent_id: parentId}) })
+            .then(r=>r.json().then(j=>({status:r.status, body:j}))).then(res=>{
+                if(res.status===201) loadComments(postId);
+                else if(res.status===401){ alert('请先登录'); window.location.href='/login'; }
+                else alert(res.body.error || '回复失败');
+            }).catch(err=>{ console.error('回复失败', err); alert('回复失败'); });
+    }
+}
+
+function createGroup(){
+    const name = document.getElementById('groupName').value.trim();
+    const desc = document.getElementById('groupDesc').value.trim();
+    const msg = document.getElementById('groupMsg');
+    if(!name){ msg.innerHTML = '<div class="text-danger">请填写小组名称</div>'; return; }
+    fetch('/api/groups', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name, description: desc}) })
+        .then(r=>r.json().then(j=>({status:r.status, body:j}))).then(res=>{
+            if(res.status===201){ msg.innerHTML = '<div class="text-success">小组创建成功</div>'; document.getElementById('groupName').value=''; document.getElementById('groupDesc').value=''; }
+            else if(res.status===401){ alert('请先登录以创建小组'); window.location.href = '/login'; }
+            else { msg.innerHTML = `<div class="text-danger">${res.body.error || '创建失败'}</div>`; }
+        }).catch(err=>{ console.error('创建小组失败', err); msg.innerHTML = '<div class="text-danger">创建失败，请稍后重试</div>'; });
+}
+
+function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
