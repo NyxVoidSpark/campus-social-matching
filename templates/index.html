@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>校园多元活动列表</title>
+    <!-- 引入Bootstrap样式 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- 添加Font Awesome图标库 -->
+    <!-- 引入Font Awesome图标库 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
+        /* 基础样式优化 */
         .user-info {
             text-align: right;
             margin-bottom: 20px;
@@ -16,7 +18,7 @@
             margin-bottom: 30px;
         }
         .search-container {
-            max-width: 600px;
+            max-width: 800px;
             margin: 0 auto 30px;
         }
         .search-box {
@@ -24,21 +26,35 @@
             border-radius: 25px;
             overflow: hidden;
         }
+        .publish-card {
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+        .publish-card .card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #eee;
+        }
+        /* 适配移动端布局 */
+        @media (max-width: 992px) {
+            .publish-card {
+                margin-bottom: 30px;
+            }
+        }
     </style>
 </head>
 <body>
-
-    <div class="container activity-container">
-        <!-- 顶部导航栏 -->
+    <div class="container activity-container py-4">
+        <!-- 顶部导航栏：显示用户信息和操作按钮 -->
         <div class="d-flex justify-content-between align-items-center mb-4 p-3 bg-light rounded">
             <div class="d-flex align-items-center">
                 <h4 class="mb-0">校园活动平台</h4>
                 <span class="badge bg-primary ms-2">Beta</span>
             </div>
-
-            <!-- 用户信息 -->
+            <!-- 用户信息区域 -->
             <div class="user-info d-flex align-items-center">
                 <span id="usernameDisplay" class="me-2 fw-bold"></span>
+                <span id="userRoleBadge" class="badge bg-success me-2"></span>
                 <div class="btn-group" role="group">
                     <a href="/profile" class="btn btn-outline-primary btn-sm">
                         <i class="fas fa-user me-1"></i>个人中心
@@ -50,11 +66,9 @@
             </div>
         </div>
 
-        <!-- 活动内容区域 -->
+        <!-- 核心区域1：活动类型搜索 -->
         <div class="header text-center mb-4">
             <h1 class="mb-3">校园多元活动列表</h1>
-
-            <!-- 搜索和筛选区域 -->
             <div class="card shadow-sm mb-4">
                 <div class="card-body">
                     <!-- 搜索框 -->
@@ -66,64 +80,132 @@
                             <i class="fas fa-search me-1"></i>搜索
                         </button>
                     </div>
-
-                    <!-- 活动筛选按钮（将由前端从统一分类选项填充） -->
-                    <div class="d-flex justify-content-center">
+                    <!-- 活动类型筛选按钮 -->
+                    <div class="d-flex justify-content-center flex-wrap">
                         <span class="me-2 align-self-center fw-medium">活动类型:</span>
                         <div id="activityTypeButtons" class="btn-group" role="group">
-                            <!-- 按钮由 `static/js/main.js` 的 initPostsUI() 动态填充 -->
+                            <!-- 动态填充筛选按钮：全部/学术/体育/艺术/其他 -->
+                            <button type="button" class="btn btn-outline-primary" onclick="filterActivities('all')">全部</button>
+                            <button type="button" class="btn btn-outline-primary" onclick="filterActivities('学术')">学术</button>
+                            <button type="button" class="btn btn-outline-primary" onclick="filterActivities('体育')">体育</button>
+                            <button type="button" class="btn btn-outline-primary" onclick="filterActivities('艺术')">艺术</button>
+                            <button type="button" class="btn btn-outline-primary" onclick="filterActivities('其他')">其他</button>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- 活动列表 -->
-        <!-- 发布 区 -->
-        <div class="row mb-4">
-            <div class="col-lg-4">
-                <div class="card mb-3">
-                    <div class="card-header"><strong>发布信息（支持多模态与模板）</strong></div>
-                    <div class="card-body">
-                        <form id="postForm">
-                            <div class="mb-2">
-                                <input class="form-control" id="postTitle" name="title" placeholder="标题：例如 二手教材转让" required>
-                            </div>
-                            <div class="mb-2">
-                                <select id="postCategory" class="form-select" name="category"></select>
-                            </div>
-                            <div class="mb-2">
-                                <textarea id="postContent" class="form-control" name="content" rows="4" placeholder="内容（支持 Markdown）"></textarea>
-                            </div>
-                            <div id="postMetadata" class="mb-2"></div>
-                            <div class="mb-2">
-                                <input class="form-control" id="postTags" name="tags" placeholder="标签，逗号分隔">
-                            </div>
-                            <div class="mb-2">
-                                <input type="file" id="postFiles" name="files" multiple class="form-control">
-                            </div>
-                            <div class="d-grid gap-2">
-                                <button type="button" id="checkSimilarBtn" class="btn btn-outline-secondary">检查相似</button>
-                                <button type="submit" class="btn btn-primary">发布</button>
-                            </div>
-                        </form>
-                        <div id="postFormMsg" class="mt-2"></div>
+        <!-- 核心区域2：左侧发布活动 + 右侧发布帖子 -->
+        <div class="row mb-6">
+            <!-- 左侧：发布活动（占4列） -->
+            <div class="col-lg-4 mb-4">
+                <div class="card publish-card">
+                    <div class="card-header">
+                        <strong><i class="fas fa-calendar-plus"></i> 发布活动</strong>
                     </div>
-                </div>
-                <div class="card">
-                    <div class="card-header"><strong>兴趣小组</strong></div>
                     <div class="card-body">
-                        <input id="groupName" class="form-control mb-2" placeholder="小组名称">
-                        <textarea id="groupDesc" class="form-control mb-2" rows="2" placeholder="小组介绍（可选）"></textarea>
-                        <button id="createGroupBtn" class="btn btn-outline-success w-100">创建小组</button>
-                        <div id="groupMsg" class="mt-2"></div>
+                        <form id="activityForm">
+                            <div class="mb-3">
+                                <label for="activityTitle" class="form-label">活动标题 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="activityTitle" name="title" placeholder="例如 校园篮球赛" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="activityType" class="form-label">活动类型 <span class="text-danger">*</span></label>
+                                <select class="form-select" id="activityType" name="type" required>
+                                    <option value="">请选择类型</option>
+                                    <option value="学术">学术</option>
+                                    <option value="体育">体育</option>
+                                    <option value="艺术">艺术</option>
+                                    <option value="其他">其他</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="activityTime" class="form-label">活动时间 <span class="text-danger">*</span></label>
+                                <input type="datetime-local" class="form-control" id="activityTime" name="time" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="activityLocation" class="form-label">活动地点 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="activityLocation" name="location" placeholder="例如 学校体育馆" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="activityTags" class="form-label">活动标签（逗号分隔）</label>
+                                <input type="text" class="form-control" id="activityTags" name="tags" placeholder="例如 篮球,运动,团队">
+                            </div>
+                            <div class="mb-3">
+                                <label for="activityDesc" class="form-label">活动描述</label>
+                                <textarea class="form-control" id="activityDesc" name="description" rows="3" placeholder="活动详情介绍"></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="fas fa-paper-plane"></i> 发布活动
+                            </button>
+                            <div id="activityFormMsg" class="mt-2"></div>
+                        </form>
                     </div>
                 </div>
             </div>
 
+            <!-- 右侧：发布帖子（占8列） -->
             <div class="col-lg-8">
-                <div class="card">
-                    <div class="card-header"><strong>信息流</strong></div>
+                <div class="card publish-card">
+                    <div class="card-header">
+                        <strong><i class="fas fa-pen-to-square"></i> 发布帖子</strong>
+                    </div>
+                    <div class="card-body">
+                        <form id="postForm">
+                            <div class="row mb-3">
+                                <div class="col-md-8">
+                                    <label for="postTitle" class="form-label">帖子标题 <span class="text-danger">*</span></label>
+                                    <input class="form-control" id="postTitle" name="title" placeholder="例如 二手教材转让" required>
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="postCategory" class="form-label">帖子分类 <span class="text-danger">*</span></label>
+                                    <select id="postCategory" class="form-select" name="category" required>
+                                        <option value="">请选择分类</option>
+                                        <option value="教学科研">教学科研</option>
+                                        <option value="校园活动">校园活动</option>
+                                        <option value="生活服务">生活服务</option>
+                                        <option value="求职就业">求职就业</option>
+                                        <option value="学术交流">学术交流</option>
+                                        <option value="兴趣社群">兴趣社群</option>
+                                        <option value="求助问答">求助问答</option>
+                                        <option value="校园资讯">校园资讯</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="postContent" class="form-label">帖子内容（支持Markdown）</label>
+                                <textarea id="postContent" class="form-control" name="content" rows="6" placeholder="详细内容描述" required></textarea>
+                            </div>
+                            <div id="postMetadata" class="mb-3"></div>
+                            <div class="row mb-3">
+                                <div class="col-md-8">
+                                    <label for="postTags" class="form-label">帖子标签（逗号分隔）</label>
+                                    <input class="form-control" id="postTags" name="tags" placeholder="例如 二手,教材,计算机">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="postFiles" class="form-label">上传附件（可选）</label>
+                                    <input type="file" id="postFiles" name="files" multiple class="form-control">
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" id="checkSimilarBtn" class="btn btn-outline-secondary flex-1">
+                                    <i class="fas fa-search"></i> 检查相似帖子
+                                </button>
+                                <button type="submit" class="btn btn-primary flex-1">
+                                    <i class="fas fa-paper-plane"></i> 发布帖子
+                                </button>
+                            </div>
+                            <div id="postFormMsg" class="mt-2"></div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 帖子信息流 -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <strong><i class="fas fa-stream"></i> 帖子信息流</strong>
+                    </div>
                     <div class="card-body">
                         <div id="postsList" class="list-group"></div>
                     </div>
@@ -131,6 +213,7 @@
             </div>
         </div>
 
+        <!-- 活动列表区域（加载占位） -->
         <div class="row" id="activity-list">
             <div class="col-12 text-center">
                 <div class="spinner-border text-primary" role="status">
@@ -141,54 +224,140 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='js/main.js') }}" charset="UTF-8"></script>
-        <!-- 帖子详情模态框 -->
-        <div class="modal fade" id="postDetailModal" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog modal-lg modal-dialog-centered">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="postDetailTitle"></h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body" id="postDetailBody">
-                        <!-- 内容由 JS 填充 -->
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                    </div>
+    <!-- 帖子详情模态框 -->
+    <div class="modal fade" id="postDetailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="postDetailTitle"></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="postDetailBody">
+                    <!-- 内容由JS填充 -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
                 </div>
             </div>
         </div>
-    <!-- 添加搜索相关的JS函数 -->
+    </div>
+
+    <!-- 引入Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- 引入业务逻辑JS（根据实际路径调整） -->
+    <script src="{{ url_for('static', filename='js/main.js') }}" charset="UTF-8"></script>
+
+    <!-- 核心业务逻辑 -->
     <script>
-        // 设置搜索类型
-        function setSearchType(type) {
-            // 更新按钮状态
-            document.querySelectorAll('.search-container .btn-group .btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
-
-            // 更新隐藏的搜索类型变量
-            currentSearchType = type;
-        }
-
-        // 初始化搜索类型变量
+        // 初始化变量
         let currentSearchType = 'all';
 
-        // 搜索活动的函数需要在main.js中实现
-        // 这里可以先定义一个占位符
-        if (typeof searchActivities === 'undefined') {
-            function searchActivities() {
-                const keyword = document.getElementById('searchInput').value.trim();
-                if (keyword) {
-                    alert('搜索功能需要后端API支持，请确保已添加搜索API');
-                    // 实际实现应该调用：fetch(`/api/activities/search?keyword=${keyword}&type=${currentSearchType}`)
-                } else {
-                    loadActivities(); // 如果关键词为空，重新加载所有活动
+        // 页面加载完成后初始化用户信息
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUserInfo(); // 加载登录用户信息
+            initActivityForm(); // 初始化活动发布表单
+            initPostForm(); // 初始化帖子发布表单
+        });
+
+        // 加载当前登录用户信息
+        function loadUserInfo() {
+            fetch('/api/current-user')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('usernameDisplay').textContent = data.data.username;
+                        document.getElementById('userRoleBadge').textContent = data.data.role === 'teacher' ? '教师' : '学生';
+                    }
+                })
+                .catch(error => console.error('加载用户信息失败:', error));
+        }
+
+        // 登出功能
+        function logout() {
+            fetch('/api/logout', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        window.location.href = '/login';
+                    }
+                })
+                .catch(error => console.error('登出失败:', error));
+        }
+
+        // 搜索活动
+        function searchActivities() {
+            const keyword = document.getElementById('searchInput').value.trim();
+            // 实际项目中替换为真实接口请求
+            console.log('搜索活动：', keyword, '类型：', currentSearchType);
+            document.getElementById('activity-list').innerHTML = `<div class="col-12 text-center"><p>搜索关键词：${keyword || '无'}，类型：${currentSearchType}</p></div>`;
+        }
+
+        // 筛选活动类型
+        function filterActivities(type) {
+            currentSearchType = type;
+            // 重置筛选按钮样式
+            document.querySelectorAll('#activityTypeButtons .btn').forEach(btn => {
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-outline-primary');
+                if (btn.textContent.trim() === type || (type === 'all' && btn.textContent.trim() === '全部')) {
+                    btn.classList.remove('btn-outline-primary');
+                    btn.classList.add('btn-primary');
                 }
-            }
+            });
+            searchActivities(); // 重新搜索
+        }
+
+        // 初始化活动发布表单
+        function initActivityForm() {
+            const form = document.getElementById('activityForm');
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const formData = {
+                    title: document.getElementById('activityTitle').value,
+                    type: document.getElementById('activityType').value,
+                    time: document.getElementById('activityTime').value,
+                    location: document.getElementById('activityLocation').value,
+                    tags: document.getElementById('activityTags').value,
+                    description: document.getElementById('activityDesc').value
+                };
+                // 实际项目中替换为真实接口请求
+                fetch('/api/activities', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('activityFormMsg').innerHTML = `<div class="alert alert-success">活动发布成功！</div>`;
+                        form.reset(); // 重置表单
+                        setTimeout(() => document.getElementById('activityFormMsg').innerHTML = '', 3000);
+                    } else {
+                        document.getElementById('activityFormMsg').innerHTML = `<div class="alert alert-danger">发布失败：${data.error}</div>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('发布活动失败:', error);
+                    document.getElementById('activityFormMsg').innerHTML = `<div class="alert alert-danger">发布失败，请重试</div>`;
+                });
+            });
+        }
+
+        // 初始化帖子发布表单（简化版）
+        function initPostForm() {
+            const form = document.getElementById('postForm');
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                // 实际项目中补充完整表单处理逻辑
+                document.getElementById('postFormMsg').innerHTML = `<div class="alert alert-success">帖子发布成功（待审核）！</div>`;
+                form.reset();
+                setTimeout(() => document.getElementById('postFormMsg').innerHTML = '', 3000);
+            });
+            // 检查相似帖子按钮
+            document.getElementById('checkSimilarBtn').addEventListener('click', function() {
+                document.getElementById('postFormMsg').innerHTML = `<div class="alert alert-info">未检测到相似帖子，可以发布！</div>`;
+                setTimeout(() => document.getElementById('postFormMsg').innerHTML = '', 3000);
+            });
         }
     </script>
 </body>

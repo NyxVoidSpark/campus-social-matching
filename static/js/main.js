@@ -892,17 +892,100 @@ function submitPost(){
     const metadata = collectMetadata();
     const files = document.getElementById('postFiles').files;
     const fd = new FormData();
-    fd.append('title', title); fd.append('category', category); fd.append('content', content); fd.append('tags', tags);
+    fd.append('title', title);
+    fd.append('category', category);
+    fd.append('content', content);
+    fd.append('tags', tags);
     fd.append('metadata', JSON.stringify(metadata));
     for(let i=0;i<files.length;i++) fd.append('files', files[i]);
 
-    fetch('/api/posts', { method: 'POST', body: fd })
-        .then(r=>r.json().then(j=>({status:r.status, body:j}))).then(res=>{
-            const msgDiv = document.getElementById('postFormMsg');
-            if(res.status === 201){ msgDiv.innerHTML = '<div class="alert alert-success">发布成功</div>'; document.getElementById('postForm').reset(); loadPostsList(); }
-            else if(res.status === 409){ msgDiv.innerHTML = `<div class="alert alert-warning">${res.body.error || '可能存在重复'}<br><small>请先检查原帖</small></div>`; }
-            else { msgDiv.innerHTML = `<div class="alert alert-danger">发布失败：${res.body.error || '未知错误'}</div>`; }
-        }).catch(err=>{ console.error('发布失败', err); document.getElementById('postFormMsg').innerHTML = '<div class="alert alert-danger">发布失败，请稍后再试</div>'; });
+    // 显示正在发布状态
+    const msgDiv = document.getElementById('postFormMsg');
+    msgDiv.innerHTML = '<div class="alert alert-info">正在发布中...</div>';
+
+    // 添加完整的调试信息
+    console.log('提交帖子数据:', {
+        title: title,
+        category: category,
+        contentLength: content.length,
+        tags: tags
+    });
+
+    fetch('/api/posts', {
+        method: 'POST',
+        body: fd,
+        // 不要设置 Content-Type，让浏览器自动设置 multipart/form-data
+    })
+    .then(async response => {
+        console.log('响应状态:', response.status, response.statusText);
+
+        // 先尝试获取原始响应文本
+        const text = await response.text();
+        console.log('原始响应文本前200字符:', text.substring(0, 200));
+
+        // 检查是否是 HTML 页面
+        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<!doctype')) {
+            console.error('后端返回了HTML页面而不是JSON');
+
+            // 检查是否包含登录重定向
+            if (text.includes('login') || text.includes('登录')) {
+                return {
+                    status: 401,
+                    body: { error: '用户未登录或会话已过期' }
+                };
+            }
+
+            // 尝试解析 HTML 中的错误信息
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = text;
+            const errorText = tempDiv.textContent || '服务器返回了错误页面';
+
+            return {
+                status: 500,
+                body: { error: `服务器错误: ${errorText.substring(0, 100)}...` }
+            };
+        }
+
+        // 尝试解析为 JSON
+        try {
+            const json = JSON.parse(text);
+            return {
+                status: response.status,
+                body: json
+            };
+        } catch (e) {
+            console.error('解析JSON失败:', e);
+            return {
+                status: response.status,
+                body: { error: `响应格式错误: ${text.substring(0, 100)}...` }
+            };
+        }
+    })
+    .then(res => {
+        console.log('处理后响应:', res);
+
+        if (res.status === 201) {
+            msgDiv.innerHTML = '<div class="alert alert-success">发布成功，等待审核</div>';
+            document.getElementById('postForm').reset();
+            loadPostsList();
+        }
+        else if (res.status === 409) {
+            msgDiv.innerHTML = `<div class="alert alert-warning">${res.body.error || '可能存在重复'}<br><small>请先检查原帖</small></div>`;
+        }
+        else if (res.status === 401) {
+            msgDiv.innerHTML = `<div class="alert alert-danger">请先登录再发布帖子</div>`;
+            setTimeout(() => {
+                window.location.href = '/login';
+            }, 2000);
+        }
+        else {
+            msgDiv.innerHTML = `<div class="alert alert-danger">发布失败：${res.body.error || `状态码 ${res.status}`}</div>`;
+        }
+    })
+    .catch(err => {
+        console.error('发布失败:', err);
+        msgDiv.innerHTML = '<div class="alert alert-danger">网络错误，请稍后再试</div>';
+    });
 }
 
 function loadPostsList(category){

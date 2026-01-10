@@ -10,7 +10,7 @@ from typing import List, Dict, Optional, Any
 from werkzeug.utils import secure_filename
 import json
 from difflib import SequenceMatcher
-
+from flask_migrate import Migrate
 # 加载环境变量
 load_dotenv()
 
@@ -20,8 +20,8 @@ CORS(app, supports_credentials=True)  # 支持跨域请求携带cookie
 app.secret_key = 'campus_social_2025'  # 用于session加密
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600 * 24 * 7  # Session有效期7天
 app.config['SQLALCHEMY_DATABASE_URI'] = (
-    f"mysql+pymysql://{os.getenv('MYSQL_USER')}:{os.getenv('MYSQL_PASSWORD')}@"
-    f"{os.getenv('MYSQL_HOST')}:{os.getenv('MYSQL_PORT')}/{os.getenv('MYSQL_DB')}?charset=utf8mb4"
+    f"mysql+pymysql://{os.getenv('MYSQL_USER', 'root')}:{os.getenv('MYSQL_PASSWORD', '123456')}@"
+    f"{os.getenv('MYSQL_HOST', 'localhost')}:{os.getenv('MYSQL_PORT', '3306')}/{os.getenv('MYSQL_DB', 'campus_social')}?charset=utf8mb4"
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -31,27 +31,29 @@ app.config['UPLOAD_FOLDER'] = 'static/uploads'
 # 扩展允许类型：图片/视频/文档/压缩包
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'pdf', 'docx', 'pptx', 'xlsx', 'zip'}
 
+# 初始化数据库
 db = SQLAlchemy(app)
 
+migrate = Migrate(app, db)  # 绑定app和db
 
 # -------------------------- 数据库模型（整合后） --------------------------
 class User(db.Model):
-    id = db.Column(db.String(8), primary_key=True, default=lambda: str(uuid.uuid4())[:8])  # 兼容文件二的UUID格式
+    id = db.Column(db.String(8), primary_key=True, default=lambda: str(uuid.uuid4())[:8])  # 兼容UUID格式
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    hobbies = db.Column(db.String(200))  # 保留文件一的兴趣标签
-    major = db.Column(db.String(100))  # 专业（文件一基础，文件二扩展）
-    grade = db.Column(db.String(20))  # 年级（文件一基础，文件二扩展）
-    # 文件二新增字段
+    hobbies = db.Column(db.String(200))  # 兴趣标签
+    major = db.Column(db.String(100))  # 专业/部门
+    grade = db.Column(db.String(20))  # 年级/职称
+    # 扩展字段
     real_name = db.Column(db.String(50), default='')  # 真实姓名
-    student_id = db.Column(db.String(20), default='')  # 学号
+    student_id = db.Column(db.String(20), default='')  # 学号/工号
     phone = db.Column(db.String(11), default='')  # 手机号
     gender = db.Column(db.String(10), default='')  # 性别
     bio = db.Column(db.String(200), default='')  # 个人简介
     avatar = db.Column(db.String(200), default='/static/images/default.jpg')  # 头像
+    role = db.Column(db.String(20), default='student')  # 身份（student/teacher）
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))  # 创建时间
-
 
 class Activity(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -59,8 +61,8 @@ class Activity(db.Model):
     type = db.Column(db.String(50), nullable=False)  # 学术/体育/艺术/其他
     time = db.Column(db.String(50), nullable=False)
     location = db.Column(db.String(120), nullable=False)
-    tags = db.Column(db.String(200), default='')  # 活动标签，逗号分隔（文件一保留）
-    description = db.Column(db.Text, default='')  # 活动描述（文件一保留）
+    tags = db.Column(db.String(200), default='')  # 活动标签，逗号分隔
+    description = db.Column(db.Text, default='')  # 活动描述
     initiator_id = db.Column(db.String(8), db.ForeignKey('user.id'))  # 发起人ID
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))  # 创建时间
     # 扩展支持：人数上限、费用、报名截止、活动状态与签到二维码令牌
@@ -69,36 +71,34 @@ class Activity(db.Model):
     signup_deadline = db.Column(db.String(50), default='')
     status = db.Column(db.String(30), default='upcoming')  # upcoming / ongoing / finished / cancelled
     qr_token = db.Column(db.String(64), unique=True, nullable=True)
-    # 关联参与者（文件一保留）
+    # 关联参与者
     participants = db.relationship('User', secondary='activity_participants', backref=db.backref('joined_activities'))
 
-
-# 活动-用户多对多关联表（报名关系，文件一保留）
+# 活动-用户多对多关联表（报名关系）
 activity_participants = db.Table(
     'activity_participants',
     db.Column('user_id', db.String(8), db.ForeignKey('user.id'), primary_key=True),
     db.Column('activity_id', db.Integer, db.ForeignKey('activity.id'), primary_key=True)
 )
 
-# 收藏关系表（新增，替代文件二的内存字典）
+# 收藏关系表
 activity_favorites = db.Table(
     'activity_favorites',
     db.Column('user_id', db.String(8), db.ForeignKey('user.id'), primary_key=True),
     db.Column('activity_id', db.Integer, db.ForeignKey('activity.id'), primary_key=True)
 )
+
 # 给User添加收藏关联
 User.favorite_activities = db.relationship('Activity', secondary=activity_favorites, backref=db.backref('favorited_by'))
 
-
-# 关注关系表（文件一保留）
+# 关注关系表
 class Follow(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     follower_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
     followed_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
     __table_args__ = (db.UniqueConstraint('follower_id', 'followed_id', name='_follower_followed_uc'),)
 
-
-# -------------------------- 帖子与板块模板（结构化信息） --------------------------
+# -------------------------- 帖子与审核相关模型 --------------------------
 # 栏目
 POST_CATEGORIES = [
     "教学科研",
@@ -159,7 +159,6 @@ POST_TEMPLATES = {
     }
 }
 
-
 class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     title = db.Column(db.String(200), nullable=False)
@@ -172,8 +171,20 @@ class Post(db.Model):
     author_id = db.Column(db.String(8), db.ForeignKey('user.id'))
     is_official = db.Column(db.Boolean, default=False)
     org_name = db.Column(db.String(120), default='')
+    review_status = db.Column(db.String(20), default='pending')  # 审核状态（pending/approved/rejected）
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
+# 帖子审核记录表
+class PostReview(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
+    teacher_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending/approved/rejected
+    comment = db.Column(db.String(200), default='')
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+# 给Post添加审核关联
+Post.reviews = db.relationship('PostReview', backref='post', cascade='all, delete-orphan')
 
 class Group(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -183,7 +194,6 @@ class Group(db.Model):
     # 小组类型：public / review / private
     type = db.Column(db.String(20), default='public')
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
 
 # 小组成员多对多
 group_members = db.Table(
@@ -201,7 +211,6 @@ class MembershipRequest(db.Model):
     status = db.Column(db.String(20), default='pending')  # pending / approved / rejected
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-
 # 评论（支持楼中楼）
 class Comment(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -212,8 +221,7 @@ class Comment(db.Model):
     is_pinned = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-
-# 反应/互动（点赞/收藏/转发/有用等）
+# 反应/互动（点赞/收藏/转发/有用/打赏等）
 class Reaction(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
@@ -222,7 +230,6 @@ class Reaction(db.Model):
     type = db.Column(db.String(30), nullable=False)  # like, favorite, repost, useful, unuseful, reward
     metadata_json = db.Column(db.String(200), default='')
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-
 
 # 组队招募
 class TeamRecruit(db.Model):
@@ -234,14 +241,12 @@ class TeamRecruit(db.Model):
     creator_id = db.Column(db.String(8), db.ForeignKey('user.id'))
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-
 # 组队成员多对多
 team_members = db.Table(
     'team_members',
     db.Column('user_id', db.String(8), db.ForeignKey('user.id'), primary_key=True),
     db.Column('team_id', db.Integer, db.ForeignKey('team_recruit.id'), primary_key=True)
 )
-
 
 # 积分流水记录
 class PointsLedger(db.Model):
@@ -254,49 +259,56 @@ class PointsLedger(db.Model):
 # 给 User 添加常用关系属性
 User.groups = db.relationship('Group', secondary=group_members, backref=db.backref('members'))
 
-
 # 创建数据库表（启动时自动执行）
 with app.app_context():
     db.create_all()
     # 确保上传目录存在
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
+    os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'avatars'), exist_ok=True)
+    # 初始化5个教师账号（如果不存在）
+    teacher_usernames = ['teacherA', 'teacherB', 'teacherC', 'teacherD', 'teacherE']
+    for username in teacher_usernames:
+        if not User.query.filter_by(username=username).first():
+            hashed_pwd = generate_password_hash('666888', method='pbkdf2:sha256')
+            teacher = User(
+                username=username,
+                email=f"{username}@school.com",
+                password=hashed_pwd,
+                role='teacher',
+                real_name=username,
+                bio=f"官方认证教师-{username}"
+            )
+            db.session.add(teacher)
+    db.session.commit()
 
 # -------------------------- 辅助函数 --------------------------
 def find_user(username):
     """根据用户名查找用户"""
     return User.query.filter_by(username=username).first()
 
-
 def find_user_by_id(user_id):
     """根据ID查找用户"""
     return User.query.get(user_id)
-
 
 def is_logged_in():
     """检查用户是否已登录"""
     return "user_id" in session
 
-
 def find_activity(activity_id: int) -> Optional[Activity]:
     """根据ID查找活动"""
     return Activity.query.get(activity_id)
-
 
 def get_next_activity_id():
     """获取下一个活动ID"""
     max_id = db.session.query(db.func.max(Activity.id)).scalar()
     return max_id + 1 if max_id else 1
 
-
 def allowed_file(filename):
     """检查文件扩展名是否允许"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-
 def similar_ratio(a: str, b: str) -> float:
     return SequenceMatcher(None, a or '', b or '').ratio()
-
 
 def find_similar_posts(title: str, content: str, threshold: float = 0.75):
     combined = (title or '') + '\n' + (content or '')
@@ -313,8 +325,12 @@ def find_similar_posts(title: str, content: str, threshold: float = 0.75):
     candidates.sort(key=lambda x: x['score'], reverse=True)
     return candidates
 
+def is_teacher(user_id):
+    """检查是否为教师"""
+    user = find_user_by_id(user_id)
+    return user and user.role == 'teacher'
 
-# -------------------------- 页面路由（整合后） --------------------------
+# -------------------------- 页面路由 --------------------------
 # 首页
 @app.route('/')
 def home():
@@ -322,20 +338,17 @@ def home():
         return redirect(url_for('login_page'))
     return render_template('index.html')
 
-
 # 登录页
 @app.route('/login')
 def login_page():
     return render_template('login.html')
-
 
 # 注册页
 @app.route('/register')
 def register_page():
     return render_template('register.html')
 
-
-# 个人中心页（文件二新增）
+# 个人中心页
 @app.route('/profile')
 def profile_page():
     if not is_logged_in():
@@ -346,16 +359,14 @@ def profile_page():
         return redirect(url_for('login_page'))
     return render_template("profile.html", user=user)
 
-
-# 创建活动页（文件一保留）
+# 创建活动页
 @app.route('/create-activity')
 def create_activity_page():
     if 'user_id' not in session:
         return redirect(url_for('login_page'))
     return render_template('create_activity.html')
 
-
-# 活动详情页（文件一保留）
+# 活动详情页
 @app.route('/activity/<int:activity_id>')
 def activity_detail(activity_id):
     activity = Activity.query.get_or_404(activity_id)
@@ -365,38 +376,47 @@ def activity_detail(activity_id):
                            initiator=initiator,
                            username=session.get('username'))
 
+# 教师审核页面路由（仅教师可访问）
+# 教师审核页面路由（仅教师可访问）
+@app.route('/teacher/review')
+def teacher_review_page():
+    if not is_logged_in():
+        return redirect(url_for('login_page'))
+    if not is_teacher(session["user_id"]):
+        return redirect(url_for('home'))
+    return render_template('teacher_review.html')  # 确保文件名正确
 
-# -------------------------- API接口（整合后） --------------------------
-# 注册接口（合并文件一和文件二的字段）
+# -------------------------- API接口 --------------------------
+# 注册接口（仅允许学生注册）
 @app.route('/api/register', methods=['POST'])
 def register():
     try:
         if not request.is_json:
             return jsonify({"success": False, "error": "请求格式必须为JSON"}), 400
-
         data = request.get_json()
         # 验证必填字段
         required_fields = ["username", "password", "email"]
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({"success": False, "error": f"缺少字段：{field}"}), 400
-
+        # 验证用户名（不能是教师预设用户名）
+        if data["username"] in ['teacherA', 'teacherB', 'teacherC', 'teacherD', 'teacherE']:
+            return jsonify({"success": False, "error": "该用户名已被系统占用"}), 409
         # 验证用户名长度
         if len(data["username"]) < 3 or len(data["username"]) > 20:
             return jsonify({"success": False, "error": "用户名长度需在3-20个字符之间"}), 400
-
         # 检查用户名和邮箱是否已存在
         if find_user(data["username"]):
             return jsonify({"success": False, "error": "用户名已被注册"}), 409
         if User.query.filter_by(email=data["email"]).first():
             return jsonify({"success": False, "error": "邮箱已存在"}), 409
-
-        # 创建新用户（合并字段）
+        # 创建新用户（默认身份为学生）
         hashed_password = generate_password_hash(data["password"], method='pbkdf2:sha256')
         new_user = User(
             username=data["username"],
             email=data["email"],
             password=hashed_password,
+            role='student',  # 固定为学生
             hobbies=data.get("hobbies", ""),
             major=data.get("major", ""),
             grade=data.get("grade", ""),
@@ -409,49 +429,43 @@ def register():
         )
         db.session.add(new_user)
         db.session.commit()
-
         return jsonify({
             "success": True,
             "message": "注册成功，请登录",
-            "data": {"username": new_user.username}
+            "data": {"username": new_user.username, "role": new_user.role}
         }), 201
     except Exception as e:
         return jsonify({"success": False, "error": f"服务器错误：{str(e)}"}), 500
 
-
-# 登录接口（整合文件一和文件二）
+# 登录接口
 @app.route('/api/login', methods=['POST'])
 def login():
     try:
         if not request.is_json:
             return jsonify({"success": False, "error": "请求格式必须为JSON"}), 400
-
         data = request.get_json()
         if not data or "username" not in data or not data["username"]:
             return jsonify({"success": False, "error": "请输入用户名"}), 400
         if "password" not in data or not data["password"]:
             return jsonify({"success": False, "error": "请输入密码"}), 400
-
         # 查找用户并验证密码
         user = find_user(data["username"])
         if not user or not check_password_hash(user.password, data["password"]):
             return jsonify({"success": False, "error": "用户名或密码错误"}), 401
-
         # 记录session
         session.permanent = True
         session["user_id"] = user.id
         session["username"] = user.username
-
+        session["role"] = user.role  # 记录用户身份
         return jsonify({
             "success": True,
             "message": "登录成功",
-            "data": {"username": user.username, "user_id": user.id}
+            "data": {"username": user.username, "user_id": user.id, "role": user.role}
         })
     except Exception as e:
         return jsonify({"success": False, "error": f"服务器错误：{str(e)}"}), 500
 
-
-# 注销接口（整合）
+# 注销接口
 @app.route('/api/logout', methods=['POST'])
 def logout():
     try:
@@ -460,72 +474,65 @@ def logout():
     except Exception as e:
         return jsonify({"success": False, "error": f"服务器错误：{str(e)}"}), 500
 
-
-# 获取当前登录用户信息（整合）
+# 获取当前登录用户信息
 @app.route("/api/current-user", methods=["GET"])
 def get_current_user():
     if not is_logged_in():
         return jsonify({"success": False, "error": "未登录"}), 401
-
+    # 获取用户角色
+    user = find_user_by_id(session["user_id"])
     return jsonify({
         "success": True,
-        "data": {"username": session["username"], "user_id": session["user_id"]}
+        "data": {
+            "username": session["username"],
+            "user_id": session["user_id"],
+            "role": user.role  # 新增角色返回
+        }
     })
 
-
-# -------------------------- 头像上传API --------------------------
+# -------------------------- 头像上传API（修复路径问题） --------------------------
 @app.route("/api/user/avatar", methods=["POST"])
 def upload_avatar():
     """上传用户头像"""
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     # 检查是否有文件上传
     if 'avatar' not in request.files:
         return jsonify({"success": False, "error": "没有选择文件"}), 400
-
     file = request.files['avatar']
-
     # 如果用户没有选择文件，浏览器会提交一个空文件
     if file.filename == '':
         return jsonify({"success": False, "error": "没有选择文件"}), 400
-
     # 检查文件类型
     if not allowed_file(file.filename):
         return jsonify({"success": False, "error": "不支持的文件类型，仅支持PNG、JPG、JPEG、GIF"}), 400
-
-    # 检查文件大小
+    # 检查文件大小（2MB）
     file.seek(0, os.SEEK_END)
     file_length = file.tell()
     file.seek(0)
-    if file_length > 2 * 1024 * 1024:  # 2MB
+    if file_length > 2 * 1024 * 1024:
         return jsonify({"success": False, "error": "文件太大，最大支持2MB"}), 400
-
     # 获取当前用户
     user_id = session["user_id"]
     user = find_user_by_id(user_id)
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
-
     # 生成安全的文件名
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     original_filename = secure_filename(file.filename)
     file_extension = original_filename.rsplit('.', 1)[1].lower()
-
-    # 生成新的文件名：userid_timestamp.extension
     new_filename = f"{user.id}_{timestamp}.{file_extension}"
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
-
+    # 修正保存路径（与访问路径一致）
+    save_dir = os.path.join(app.config['UPLOAD_FOLDER'], 'avatars')
+    os.makedirs(save_dir, exist_ok=True)
+    file_path = os.path.join(save_dir, new_filename)
     try:
         # 保存文件
         file.save(file_path)
-
-        # 更新数据库中的头像路径
-        # 使用相对路径，便于前端访问
-        avatar_url = f"/static/avatars/uploads/{new_filename}"
+        # 更新数据库中的头像路径（相对路径）
+        avatar_url = f"/static/uploads/avatars/{new_filename}"
         user.avatar = avatar_url
         db.session.commit()
-
         return jsonify({
             "success": True,
             "message": "头像上传成功",
@@ -537,18 +544,15 @@ def upload_avatar():
     except Exception as e:
         return jsonify({"success": False, "error": f"上传失败：{str(e)}"}), 500
 
-
 @app.route("/api/user/avatar", methods=["GET"])
 def get_avatar_info():
     """获取用户当前头像信息"""
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     user_id = session["user_id"]
     user = find_user_by_id(user_id)
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
-
     return jsonify({
         "success": True,
         "data": {
@@ -557,9 +561,8 @@ def get_avatar_info():
         }
     })
 
-
-# -------------------------- 活动API（整合后） --------------------------
-# 获取所有活动接口（整合）
+# -------------------------- 活动API --------------------------
+# 获取所有活动接口
 @app.route('/api/activities', methods=['GET'])
 def get_activities():
     activities = Activity.query.order_by(Activity.id.desc()).all()
@@ -580,8 +583,7 @@ def get_activities():
         })
     return jsonify({"success": True, "data": result, "count": len(result)}), 200
 
-
-# 获取单个活动详情（文件二新增接口）
+# 获取单个活动详情
 @app.route("/api/activities/<int:activity_id>", methods=["GET"])
 def get_activity(activity_id: int):
     activity = find_activity(activity_id)
@@ -597,29 +599,25 @@ def get_activity(activity_id: int):
                 "tags": activity.tags,
                 "description": activity.description,
                 "initiator_id": activity.initiator_id,
-                "participants": [{"id": p.id, "name": p.username} for p in activity.participants],
+                "participants": [{"id": p.id, "name": p.username} for p in act.participants],
                 "participant_count": len(activity.participants),
                 "created_at": activity.created_at
             }
         })
     return jsonify({"success": False, "error": "活动不存在"}), 404
 
-
-# 创建活动接口（整合）
+# 创建活动接口（教师和学生均可创建）
 @app.route('/api/activities', methods=['POST'])
 def create_activity():
     if not is_logged_in():
         return jsonify({"success": False, "message": "请先登录"}), 401
-
     if not request.json:
         return jsonify({"success": False, "error": "请求数据为空或格式不正确"}), 400
-
     data = request.get_json()
     required_fields = ["title", "type", "time", "location"]
     for field in required_fields:
         if field not in data or not data[field]:
             return jsonify({"success": False, "error": f"缺少必要字段: {field}"}), 400
-
     # 生成新活动
     new_activity = Activity(
         title=data["title"],
@@ -632,7 +630,6 @@ def create_activity():
     )
     db.session.add(new_activity)
     db.session.commit()
-
     return jsonify({
         "success": True,
         "message": "活动创建成功",
@@ -645,25 +642,37 @@ def create_activity():
         }
     }), 201
 
+# 活动删除接口（仅教师可删除）
+@app.route('/api/activities/<int:activity_id>', methods=['DELETE'])
+def delete_activity(activity_id):
+    if not is_logged_in():
+        return jsonify({"success": False, "error": "请先登录"}), 401
+    if not is_teacher(session["user_id"]):
+        return jsonify({"success": False, "error": "仅教师可删除活动"}), 403
+    activity = find_activity(activity_id)
+    if not activity:
+        return jsonify({"success": False, "error": "活动不存在"}), 404
+    try:
+        db.session.delete(activity)
+        db.session.commit()
+        return jsonify({"success": True, "message": "活动已删除"})
+    except Exception as e:
+        return jsonify({"success": False, "error": f"删除失败：{str(e)}"}), 500
 
-# 活动报名接口（整合）
+# 活动报名接口
 @app.route('/api/activities/<int:activity_id>/join', methods=['POST'])
 def join_activity(activity_id: int):
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     activity = find_activity(activity_id)
     if not activity:
         return jsonify({"success": False, "error": "活动不存在"}), 404
-
     user = find_user_by_id(session["user_id"])
     # 检查是否已报名
     if user in activity.participants:
         return jsonify({"success": False, "error": "您已报名该活动"}), 400
-
     activity.participants.append(user)
     db.session.commit()
-
     return jsonify({
         "success": True,
         "message": f"成功报名活动: {activity.title}",
@@ -673,24 +682,19 @@ def join_activity(activity_id: int):
         }
     })
 
-
-# 取消报名接口（文件二新增）
+# 取消报名接口
 @app.route("/api/activities/<int:activity_id>/leave", methods=["POST"])
 def leave_activity(activity_id: int):
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     activity = find_activity(activity_id)
     if not activity:
         return jsonify({"success": False, "error": "活动不存在"}), 404
-
     user = find_user_by_id(session["user_id"])
     if user not in activity.participants:
         return jsonify({"success": False, "error": "您未报名该活动"}), 400
-
     activity.participants.remove(user)
     db.session.commit()
-
     return jsonify({
         "success": True,
         "message": f"已取消报名活动: {activity.title}",
@@ -700,20 +704,16 @@ def leave_activity(activity_id: int):
         }
     })
 
-
-# 活动收藏/取消收藏接口（文件二新增）
+# 活动收藏/取消收藏接口
 @app.route("/api/activities/<int:activity_id>/favorite", methods=["POST"])
 def favorite_activity(activity_id: int):
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     activity = find_activity(activity_id)
     if not activity:
         return jsonify({"success": False, "error": "活动不存在"}), 404
-
     user = find_user_by_id(session["user_id"])
     is_favorited = activity in user.favorite_activities
-
     if is_favorited:
         # 取消收藏
         user.favorite_activities.remove(activity)
@@ -722,7 +722,6 @@ def favorite_activity(activity_id: int):
         # 添加收藏
         user.favorite_activities.append(activity)
         message = "活动已收藏"
-
     db.session.commit()
     return jsonify({
         "success": True,
@@ -734,16 +733,13 @@ def favorite_activity(activity_id: int):
         }
     })
 
-
-# 活动搜索接口（文件二新增）
+# 活动搜索接口
 @app.route("/api/activities/search", methods=["GET"])
 def search_activities():
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     keyword = request.args.get('keyword', '').strip()
     search_type = request.args.get('type', 'all')
-
     # 构建查询条件
     query = Activity.query
     if search_type != 'all':
@@ -753,7 +749,6 @@ def search_activities():
         query = query.filter(
             db.or_(Activity.title.like(keyword), Activity.location.like(keyword))
         )
-
     activities = query.order_by(Activity.id.desc()).all()
     result = []
     for act in activities:
@@ -765,7 +760,6 @@ def search_activities():
             "location": act.location,
             "participants_count": len(act.participants)
         })
-
     return jsonify({
         "success": True,
         "data": result,
@@ -773,19 +767,16 @@ def search_activities():
         "search_info": {"keyword": keyword.strip('%') if keyword else '', "type": search_type}
     })
 
-
-# 活动推荐接口（文件一保留）
+# 活动推荐接口
 @app.route('/api/activities/recommend', methods=['GET'])
 def recommend_activities():
     if 'user_id' not in session:
         return jsonify({'success': False, 'message': '请先登录'}), 401
-
     # 获取当前用户的兴趣标签
     user = find_user_by_id(session['user_id'])
     user_hobbies = user.hobbies.split(',') if user.hobbies else []
     if not user_hobbies:
         return jsonify({'success': True, 'activities': [], 'message': '暂无兴趣标签，推荐热门活动'}), 200
-
     # 匹配活动标签（包含任意一个兴趣标签）
     recommended = []
     activities = Activity.query.order_by(Activity.id.desc()).all()
@@ -801,15 +792,12 @@ def recommend_activities():
                 'tags': act.tags,
                 'participant_count': len(act.participants)
             })
-
     return jsonify({'success': True, 'activities': recommended}), 200
-
 
 # -------------------------- 帖子与结构化发布 API --------------------------
 @app.route('/api/post-templates', methods=['GET'])
 def get_post_templates():
     return jsonify({'success': True, 'data': POST_TEMPLATES, 'categories': POST_CATEGORIES})
-
 
 @app.route('/api/posts/similar', methods=['GET'])
 def api_similar_posts():
@@ -822,7 +810,7 @@ def api_similar_posts():
     candidates = find_similar_posts(title, content, threshold)
     return jsonify({'success': True, 'data': candidates, 'count': len(candidates)})
 
-
+# 获取帖子列表（仅显示审核通过或自己发布的帖子）
 @app.route('/api/posts', methods=['GET'])
 def list_posts_api():
     category = request.args.get('category')
@@ -830,6 +818,14 @@ def list_posts_api():
     query = Post.query.order_by(Post.id.desc())
     if category:
         query = query.filter(Post.category == category)
+    # 过滤条件：审核通过 或 自己发布的帖子
+    current_user_id = session.get('user_id')
+    query = query.filter(
+        db.or_(
+            Post.review_status == 'approved',
+            Post.author_id == current_user_id
+        )
+    )
     results = []
     for p in query.all():
         tags = p.tags.split(',') if p.tags else []
@@ -857,16 +853,20 @@ def list_posts_api():
             'author_id': p.author_id,
             'is_official': p.is_official,
             'org_name': p.org_name,
+            'review_status': p.review_status,
             'created_at': p.created_at
         })
     return jsonify({'success': True, 'data': results, 'count': len(results)})
-
 
 @app.route('/api/posts/<int:post_id>', methods=['GET'])
 def get_post_api(post_id: int):
     p = Post.query.get(post_id)
     if not p:
         return jsonify({'success': False, 'error': '帖子不存在'}), 404
+    # 权限验证：审核通过 或 自己发布的帖子
+    current_user_id = session.get('user_id')
+    if p.review_status != 'approved' and p.author_id != current_user_id and not is_teacher(current_user_id):
+        return jsonify({'success': False, 'error': '该帖子未审核或无访问权限'}), 403
     try:
         media = json.loads(p.media) if p.media else []
     except Exception:
@@ -887,15 +887,15 @@ def get_post_api(post_id: int):
         'author_id': p.author_id,
         'is_official': p.is_official,
         'org_name': p.org_name,
+        'review_status': p.review_status,
         'created_at': p.created_at
     }})
 
-
+# 创建帖子接口（学生发布需审核，教师发布直接通过）
 @app.route('/api/posts', methods=['POST'])
 def create_post_api():
     if not is_logged_in():
         return jsonify({'success': False, 'error': '请先登录'}), 401
-
     # 支持 JSON 或 multipart/form-data
     title = None
     category = None
@@ -904,7 +904,6 @@ def create_post_api():
     tags = []
     metadata = {}
     uploaded_media = []
-
     if request.is_json:
         data = request.get_json()
         title = data.get('title')
@@ -926,7 +925,6 @@ def create_post_api():
             metadata = json.loads(request.form.get('metadata', '{}'))
         except Exception:
             metadata = {}
-
         # 文件
         if 'files' in request.files:
             files = request.files.getlist('files')
@@ -937,18 +935,16 @@ def create_post_api():
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique)
                     f.save(save_path)
                     uploaded_media.append({'url': f"/{save_path.replace('\\', '/')}", 'filename': fname})
-
     if not title or not category:
         return jsonify({'success': False, 'error': '缺少 title 或 category'}), 400
-
     if category not in POST_CATEGORIES:
         return jsonify({'success': False, 'error': '无效的分类'}), 400
-
     # 检测相似度
     duplicates = find_similar_posts(title, content)
     if duplicates and not force:
         return jsonify({'success': False, 'error': '可能存在相似信息，建议合并或查看原帖', 'possible_duplicates': duplicates}), 409
-
+    # 确定审核状态：教师直接通过，学生需审核
+    review_status = 'approved' if is_teacher(session.get('user_id')) else 'pending'
     # 创建帖子
     p = Post(
         title=title,
@@ -960,37 +956,90 @@ def create_post_api():
         metadata_json=json.dumps(metadata, ensure_ascii=False),
         author_id=session.get('user_id'),
         is_official=False,
-        org_name=''
+        org_name='',
+        review_status=review_status
     )
     db.session.add(p)
     db.session.commit()
+    return jsonify({
+        'success': True,
+        'message': f'发布成功{"，等待教师审核" if review_status == "pending" else ""}',
+        'data': {'id': p.id, 'review_status': review_status}
+    }), 201
 
-    return jsonify({'success': True, 'message': '发布成功', 'data': {'id': p.id}}), 201
-
-
-@app.route('/api/groups', methods=['GET', 'POST'])
-def api_groups():
-    if request.method == 'GET':
-        gs = Group.query.order_by(Group.id.desc()).all()
-        return jsonify({'success': True, 'data': [{'id': g.id, 'name': g.name, 'description': g.description} for g in gs]})
-
-    # 创建小组
+# 帖子删除接口（自己的帖子或教师可删除）
+@app.route('/api/posts/<int:post_id>', methods=['DELETE'])
+def delete_post(post_id):
     if not is_logged_in():
         return jsonify({'success': False, 'error': '请先登录'}), 401
-    data = request.get_json() or {}
-    name = data.get('name')
-    desc = data.get('description', '')
-    if not name:
-        return jsonify({'success': False, 'error': '需要提供小组名称'}), 400
-    if Group.query.filter_by(name=name).first():
-        return jsonify({'success': False, 'error': '小组名称已存在'}), 409
-    g = Group(name=name, description=desc, creator_id=session.get('user_id'))
-    db.session.add(g)
-    db.session.commit()
-    return jsonify({'success': True, 'message': '小组创建成功', 'data': {'id': g.id, 'name': g.name}}), 201
+    post = Post.query.get(post_id)
+    if not post:
+        return jsonify({'success': False, 'error': '帖子不存在'}), 404
+    # 权限判断：自己的帖子或教师
+    if post.author_id != session["user_id"] and not is_teacher(session["user_id"]):
+        return jsonify({'success': False, 'error': '无权限删除该帖子'}), 403
+    try:
+        db.session.delete(post)
+        db.session.commit()
+        return jsonify({"success": True, "message": "帖子已删除"})
+    except Exception as e:
+        return jsonify({"success": False, "error": f"删除失败：{str(e)}"}), 500
 
+# 帖子审核接口（仅教师可操作）
+@app.route('/api/posts/<int:post_id>/review', methods=['POST'])
+def review_post(post_id):
+    if not is_logged_in():
+        return jsonify({"success": False, "error": "请先登录"}), 401
+    if not is_teacher(session["user_id"]):
+        return jsonify({"success": False, "error": "仅教师可审核帖子"}), 403
+    post = Post.query.get(post_id)
+    if not post:
+        return jsonify({"success": False, "error": "帖子不存在"}), 404
+    data = request.get_json()
+    if "status" not in data or data["status"] not in ['approved', 'rejected']:
+        return jsonify({"success": False, "error": "状态必须是approved或rejected"}), 400
+    # 记录审核结果
+    review = PostReview(
+        post_id=post_id,
+        teacher_id=session["user_id"],
+        status=data["status"],
+        comment=data.get("comment", "")
+    )
+    # 更新帖子审核状态
+    post.review_status = data["status"]
+    try:
+        db.session.add(review)
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": f"帖子已{data['status']}",
+            "data": {"review_id": review.id, "post_status": post.review_status}
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": f"审核失败：{str(e)}"}), 500
 
-# 帖子互动：点赞/收藏/转发/有用/打赏等（简单记录）
+# 获取待审核帖子列表（仅教师）
+@app.route('/api/posts/pending', methods=['GET'])
+def get_pending_posts():
+    if not is_logged_in():
+        return jsonify({"success": False, "error": "请先登录"}), 401
+    if not is_teacher(session["user_id"]):
+        return jsonify({"success": False, "error": "仅教师可查看待审核帖子"}), 403
+    posts = Post.query.filter_by(review_status='pending').order_by(Post.id.desc()).all()
+    result = []
+    for p in posts:
+        author = find_user_by_id(p.author_id)
+        result.append({
+            "id": p.id,
+            "title": p.title,
+            "content": p.content[:100] + "..." if len(p.content) > 100 else p.content,
+            "category": p.category,
+            "author": author.username if author else "未知用户",
+            "created_at": p.created_at
+        })
+    return jsonify({"success": True, "data": result, "count": len(result)})
+
+# 帖子互动：点赞/收藏/转发/有用/打赏等
 @app.route('/api/posts/<int:post_id>/react', methods=['POST'])
 def post_react(post_id: int):
     if not is_logged_in():
@@ -1004,7 +1053,12 @@ def post_react(post_id: int):
         return jsonify({'success': False, 'error': '缺少 type 字段'}), 400
     # 记录反应
     try:
-        react = Reaction(user_id=session.get('user_id'), post_id=post_id, type=rtype, metadata_json=json.dumps(data.get('metadata', {}), ensure_ascii=False))
+        react = Reaction(
+            user_id=session.get('user_id'),
+            post_id=post_id,
+            type=rtype,
+            metadata_json=json.dumps(data.get('metadata', {}), ensure_ascii=False)
+        )
         db.session.add(react)
         db.session.commit()
         return jsonify({'success': True, 'message': '已记录互动'}), 200
@@ -1012,13 +1066,16 @@ def post_react(post_id: int):
         db.session.rollback()
         return jsonify({'success': False, 'error': f'服务器错误：{str(e)}'}), 500
 
-
 # 获取帖子评论（含嵌套）
 @app.route('/api/posts/<int:post_id>/comments', methods=['GET'])
 def get_post_comments(post_id: int):
     p = Post.query.get(post_id)
     if not p:
         return jsonify({'success': False, 'error': '帖子不存在'}), 404
+    # 权限验证：审核通过 或 自己发布的帖子 或 教师
+    current_user_id = session.get('user_id')
+    if p.review_status != 'approved' and p.author_id != current_user_id and not is_teacher(current_user_id):
+        return jsonify({'success': False, 'error': '该帖子未审核或无访问权限'}), 403
     # 获取所有评论并构建树形
     all_comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.asc()).all()
     comments_by_id = {c.id: {
@@ -1031,16 +1088,13 @@ def get_post_comments(post_id: int):
         'created_at': c.created_at,
         'children': []
     } for c in all_comments}
-
     roots = []
     for c in comments_by_id.values():
         if c['parent_id'] and c['parent_id'] in comments_by_id:
             comments_by_id[c['parent_id']]['children'].append(c)
         else:
             roots.append(c)
-
     return jsonify({'success': True, 'data': roots, 'count': len(all_comments)}), 200
-
 
 # 提交评论或回复
 @app.route('/api/posts/<int:post_id>/comments', methods=['POST'])
@@ -1050,6 +1104,10 @@ def post_comment(post_id: int):
     p = Post.query.get(post_id)
     if not p:
         return jsonify({'success': False, 'error': '帖子不存在'}), 404
+    # 权限验证：审核通过 或 自己发布的帖子 或 教师
+    current_user_id = session.get('user_id')
+    if p.review_status != 'approved' and p.author_id != current_user_id and not is_teacher(current_user_id):
+        return jsonify({'success': False, 'error': '该帖子未审核或无评论权限'}), 403
     data = request.get_json() or {}
     content = data.get('content', '').strip()
     parent_id = data.get('parent_id')
@@ -1069,84 +1127,100 @@ def post_comment(post_id: int):
         db.session.rollback()
         return jsonify({'success': False, 'error': f'服务器错误：{str(e)}'}), 500
 
+# -------------------------- 小组API --------------------------
+@app.route('/api/groups', methods=['GET', 'POST'])
+def api_groups():
+    if request.method == 'GET':
+        gs = Group.query.order_by(Group.id.desc()).all()
+        return jsonify({'success': True, 'data': [{'id': g.id, 'name': g.name, 'description': g.description} for g in gs]})
+    # 创建小组
+    if not is_logged_in():
+        return jsonify({'success': False, 'error': '请先登录'}), 401
+    data = request.get_json() or {}
+    name = data.get('name')
+    desc = data.get('description', '')
+    if not name:
+        return jsonify({'success': False, 'error': '需要提供小组名称'}), 400
+    if Group.query.filter_by(name=name).first():
+        return jsonify({'success': False, 'error': '小组名称已存在'}), 409
+    g = Group(name=name, description=desc, creator_id=session.get('user_id'))
+    db.session.add(g)
+    db.session.commit()
+    return jsonify({'success': True, 'message': '小组创建成功', 'data': {'id': g.id, 'name': g.name}}), 201
 
-# -------------------------- 个人中心API（文件二新增） --------------------------
+# -------------------------- 个人中心API --------------------------
 # 获取用户基本资料
 @app.route("/api/user/profile", methods=["GET"])
 def get_user_profile():
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     user_id = session["user_id"]
     user = find_user_by_id(user_id)
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
-
     # 计算统计数据
     participated_count = len(user.joined_activities)
     favorites_count = len(user.favorite_activities)
     total_activities = Activity.query.count()
-
     return jsonify({
         "success": True,
         "data": {
             "username": user.username,
             "email": user.email,
+            "role": user.role,
             "created_at": user.created_at,
             "stats": {
                 "activities_joined": participated_count,
                 "total_activities": total_activities,
                 "favorites_count": favorites_count
             },
-            "avatar": user.avatar
+            "avatar": user.avatar,
+            "user_id": user.id  # 新增返回用户ID
         }
     })
-
 
 # 更新用户基本资料（邮箱）
 @app.route("/api/user/profile", methods=["PUT"])
 def update_user_profile():
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     if not request.is_json:
         return jsonify({"success": False, "error": "请求格式必须为JSON"}), 400
-
     data = request.get_json()
     user_id = session["user_id"]
     user = find_user_by_id(user_id)
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
-
     # 更新邮箱
     if "email" in data and data["email"]:
         if "@" not in data["email"] or "." not in data["email"]:
             return jsonify({"success": False, "error": "邮箱格式不正确"}), 400
+        # 检查邮箱是否已被其他用户使用
+        existing_user = User.query.filter_by(email=data["email"]).first()
+        if existing_user and existing_user.id != user_id:
+            return jsonify({"success": False, "error": "该邮箱已被其他用户使用"}), 409
         user.email = data["email"]
         db.session.commit()
-
     return jsonify({
         "success": True,
         "message": "个人资料更新成功",
         "data": {"username": user.username, "email": user.email}
     })
 
-
 # 获取用户详细资料
 @app.route("/api/user/profile/detailed", methods=["GET"])
 def get_detailed_profile():
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     user_id = session["user_id"]
     user = find_user_by_id(user_id)
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
-
     # 返回所有个人资料字段
     profile_data = {
         "username": user.username,
         "email": user.email,
+        "role": user.role,
         "real_name": user.real_name,
         "student_id": user.student_id,
         "major": user.major,
@@ -1158,29 +1232,23 @@ def get_detailed_profile():
         "created_at": user.created_at,
         "user_id": user.id
     }
-
     return jsonify({"success": True, "data": profile_data})
-
 
 # 更新用户详细资料
 @app.route("/api/user/profile/detailed", methods=["PUT"])
 def update_detailed_profile():
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     if not request.is_json:
         return jsonify({"success": False, "error": "请求格式必须为JSON"}), 400
-
     data = request.get_json()
     user_id = session["user_id"]
     user = find_user_by_id(user_id)
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
-
     # 允许更新的字段列表
     updatable_fields = ["real_name", "student_id", "major", "grade", "phone", "gender", "bio", "email"]
     updated_fields = []
-
     for field in updatable_fields:
         if field in data:
             # 验证手机号
@@ -1193,10 +1261,13 @@ def update_detailed_profile():
                 email = data[field]
                 if "@" not in email or "." not in email:
                     return jsonify({"success": False, "error": "邮箱格式不正确"}), 400
+                # 检查邮箱是否已被其他用户使用
+                existing_user = User.query.filter_by(email=email).first()
+                if existing_user and existing_user.id != user_id:
+                    return jsonify({"success": False, "error": "该邮箱已被其他用户使用"}), 409
             # 更新字段
             setattr(user, field, data[field])
             updated_fields.append(field)
-
     db.session.commit()
     return jsonify({
         "success": True,
@@ -1204,18 +1275,15 @@ def update_detailed_profile():
         "data": {"username": user.username, "updated_fields": updated_fields}
     })
 
-
 # 获取用户参与的活动
 @app.route("/api/user/joined-activities", methods=["GET"])
 def get_joined_activities():
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     user_id = session["user_id"]
     user = find_user_by_id(user_id)
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
-
     # 格式化活动数据
     joined_activities = []
     for activity in user.joined_activities:
@@ -1228,21 +1296,17 @@ def get_joined_activities():
             "participants": [{"id": p.id, "name": p.username} for p in activity.participants],
             "created_at": activity.created_at
         })
-
     return jsonify({"success": True, "data": joined_activities, "count": len(joined_activities)})
-
 
 # 获取用户收藏的活动
 @app.route("/api/user/favorites", methods=["GET"])
 def get_user_favorites_api():
     if not is_logged_in():
         return jsonify({"success": False, "error": "请先登录"}), 401
-
     user_id = session["user_id"]
     user = find_user_by_id(user_id)
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
-
     # 格式化收藏活动数据
     favorite_activities = []
     for activity in user.favorite_activities:
@@ -1255,9 +1319,34 @@ def get_user_favorites_api():
             "participants": [{"id": p.id, "name": p.username} for p in activity.participants],
             "created_at": activity.created_at
         })
-
     return jsonify({"success": True, "data": favorite_activities, "count": len(favorite_activities)})
 
+# 修改密码接口
+@app.route('/api/user/change-password', methods=['POST'])
+def change_password():
+    if not is_logged_in():
+        return jsonify({"success": False, "error": "请先登录"}), 401
+    if not request.is_json:
+        return jsonify({"success": False, "error": "请求格式必须为JSON"}), 400
+    data = request.get_json()
+    # 验证参数
+    if not data.get('current_password') or not data.get('new_password'):
+        return jsonify({"success": False, "error": "请提供当前密码和新密码"}), 400
+    # 验证新密码长度
+    if len(data.get('new_password')) < 8:
+        return jsonify({"success": False, "error": "新密码长度至少8位"}), 400
+    # 获取当前用户
+    user_id = session["user_id"]
+    user = find_user_by_id(user_id)
+    if not user:
+        return jsonify({"success": False, "error": "用户不存在"}), 404
+    # 验证当前密码
+    if not check_password_hash(user.password, data.get('current_password')):
+        return jsonify({"success": False, "error": "当前密码不正确"}), 401
+    # 更新密码
+    user.password = generate_password_hash(data.get('new_password'), method='pbkdf2:sha256')
+    db.session.commit()
+    return jsonify({"success": True, "message": "密码修改成功，请重新登录"})
 
 # -------------------------- 运行应用 --------------------------
 if __name__ == '__main__':

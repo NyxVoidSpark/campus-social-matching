@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>帖子审核 - 教师专属</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .review-container {
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+
+        .navbar-brand {
+            font-weight: 600;
+        }
+
+        .post-card {
+            margin-bottom: 20px;
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 3px 15px rgba(0, 0, 0, 0.08);
+            transition: transform 0.2s;
+        }
+
+        .post-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .post-card.pending {
+            border-left: 4px solid #ffc107;
+        }
+
+        .post-card.approved {
+            border-left: 4px solid #28a745;
+        }
+
+        .post-card.rejected {
+            border-left: 4px solid #dc3545;
+        }
+
+        .card-title {
+            color: #333;
+            font-weight: 600;
+        }
+
+        .post-meta {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+
+        .post-content {
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+
+        .action-buttons {
+            margin-top: 15px;
+        }
+
+        .comment-box {
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            resize: vertical;
+        }
+
+        .status-badge {
+            font-size: 0.8rem;
+            padding: 4px 10px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 15px;
+            color: #adb5bd;
+        }
+
+        .teacher-header {
+            background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+
+        .teacher-header h1 {
+            margin: 0;
+            font-weight: 600;
+        }
+
+        .teacher-header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+
+        .review-stats {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            flex: 1;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            margin: 0;
+            color: #6a11cb;
+            font-size: 1.8rem;
+        }
+
+        .stat-card p {
+            margin: 5px 0 0 0;
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-school text-primary me-2"></i>校园活动平台
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">
+                            <i class="fas fa-home me-1"></i>首页
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/teacher/review">
+                            <i class="fas fa-gavel me-1"></i>帖子审核
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/profile">
+                            <i class="fas fa-user me-1"></i>个人中心
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="logout()">
+                            <i class="fas fa-sign-out-alt me-1"></i>退出
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容区 -->
+    <div class="container-fluid review-container">
+        <!-- 头部区域 -->
+        <div class="teacher-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1><i class="fas fa-gavel me-2"></i>帖子审核中心</h1>
+                    <p>教师专属 - 审核学生提交的帖子内容</p>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-light text-dark px-3 py-2">
+                        <i class="fas fa-user-tie me-1"></i>教师身份
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 统计卡片 -->
+        <div class="review-stats">
+            <div class="stat-card">
+                <h3 id="pendingCount">0</h3>
+                <p>待审核</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="totalCount">0</h3>
+                <p>总帖子数</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="reviewedCount">0</h3>
+                <p>已处理</p>
+            </div>
+        </div>
+
+        <!-- 待审核帖子列表 -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0"><i class="fas fa-clock text-warning me-2"></i>待审核帖子</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="pendingPostsList">
+                            <!-- 待审核帖子将动态加载到这里 -->
+                        </div>
+
+                        <!-- 加载中状态 -->
+                        <div id="loading" class="empty-state">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                            <p class="mt-3">正在加载待审核帖子...</p>
+                        </div>
+
+                        <!-- 空状态 -->
+                        <div id="emptyState" class="empty-state" style="display: none;">
+                            <i class="fas fa-check-circle"></i>
+                            <h4 class="mt-3">暂无待审核帖子</h4>
+                            <p class="text-muted">所有帖子都已审核完成</p>
+                            <button class="btn btn-outline-primary mt-2" onclick="location.reload()">
+                                <i class="fas fa-sync-alt me-1"></i>刷新页面
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 已审核帖子（可选） -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-history text-secondary me-2"></i>最近审核记录</h5>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleRecentReviews()">
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                    </div>
+                    <div class="card-body" id="recentReviews" style="display: none;">
+                        <div id="recentReviewsList">
+                            <!-- 最近审核记录将动态加载到这里 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // 检查是否为教师，否则跳转首页
+        document.addEventListener('DOMContentLoaded', function() {
+            checkTeacherAccess();
+        });
+
+        function checkTeacherAccess() {
+            fetch('/api/current-user')
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.success || data.data.role !== 'teacher') {
+                        alert('您没有权限访问此页面');
+                        window.location.href = '/';
+                    } else {
+                        loadPendingPosts();
+                    }
+                })
+                .catch(error => {
+                    console.error('检查权限失败:', error);
+                    window.location.href = '/login';
+                });
+        }
+
+        // 加载待审核帖子
+        function loadPendingPosts() {
+            fetch('/api/posts/pending')
+                .then(res => res.json())
+                .then(data => {
+                    const container = document.getElementById('pendingPostsList');
+                    const loading = document.getElementById('loading');
+                    const emptyState = document.getElementById('emptyState');
+
+                    loading.style.display = 'none';
+
+                    if (!data.success || data.count === 0) {
+                        emptyState.style.display = 'block';
+                        document.getElementById('pendingCount').textContent = '0';
+                        return;
+                    }
+
+                    document.getElementById('pendingCount').textContent = data.count;
+
+                    // 清空容器
+                    container.innerHTML = '';
+
+                    data.data.forEach((post, index) => {
+                        const card = createPostCard(post, index);
+                        container.innerHTML += card;
+                    });
+                })
+                .catch(error => {
+                    console.error('加载帖子失败:', error);
+                    document.getElementById('loading').innerHTML = `
+                        <div class="alert alert-danger m-3">
+                            <i class="fas fa-exclamation-circle me-2"></i>
+                            加载失败，请刷新页面重试
+                            <button class="btn btn-sm btn-outline-danger ms-2" onclick="location.reload()">
+                                刷新
+                            </button>
+                        </div>
+                    `;
+                });
+        }
+
+        // 创建帖子卡片
+        function createPostCard(post, index) {
+            // 格式化日期
+            const postDate = new Date(post.created_at);
+            const formattedDate = postDate.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            return `
+                <div class="post-card pending p-3 border-bottom">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <h5 class="card-title mb-1">${escapeHtml(post.title)}</h5>
+                            <div class="post-meta">
+                                <span class="badge bg-warning status-badge me-2">待审核</span>
+                                <span><i class="fas fa-user me-1"></i>${escapeHtml(post.author)}</span>
+                                <span class="ms-3"><i class="fas fa-calendar me-1"></i>${formattedDate}</span>
+                                <span class="ms-3"><i class="fas fa-tag me-1"></i>${escapeHtml(post.category)}</span>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="badge bg-primary">#${post.id}</span>
+                        </div>
+                    </div>
+
+                    <div class="post-content mb-3">
+                        ${escapeHtml(post.content)}
+                    </div>
+
+                    <div class="action-buttons">
+                        <div class="row">
+                            <div class="col-md-8 mb-2">
+                                <textarea id="comment_${post.id}"
+                                    class="form-control comment-box"
+                                    rows="2"
+                                    placeholder="审核意见（可选，最多200字）"
+                                    maxlength="200"></textarea>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="d-grid gap-2">
+                                    <button class="btn btn-success" onclick="reviewPost(${post.id}, 'approved')">
+                                        <i class="fas fa-check me-1"></i>通过审核
+                                    </button>
+                                    <button class="btn btn-danger" onclick="reviewPost(${post.id}, 'rejected')">
+                                        <i class="fas fa-times me-1"></i>驳回帖子
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 审核帖子
+        function reviewPost(postId, status) {
+            const comment = document.getElementById(`comment_${postId}`).value.trim();
+
+            if (status === 'rejected' && !comment) {
+                if (!confirm('驳回帖子建议填写审核意见。是否继续不填写意见？')) {
+                    return;
+                }
+            }
+
+            const action = status === 'approved' ? '通过' : '驳回';
+            if (!confirm(`确定要${action}这个帖子吗？`)) {
+                return;
+            }
+
+            const reviewButton = event?.target || document.querySelector(`[onclick*="reviewPost(${postId}, '${status}')"]`);
+            const originalText = reviewButton.innerHTML;
+
+            // 显示加载状态
+            reviewButton.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>处理中...`;
+            reviewButton.disabled = true;
+
+            fetch(`/api/posts/${postId}/review`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ status, comment })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    // 显示成功消息
+                    showAlert(`${action}成功`, 'success');
+
+                    // 从页面移除该帖子
+                    const postElement = document.querySelector(`[onclick*="reviewPost(${postId},"]`)?.closest('.post-card');
+                    if (postElement) {
+                        postElement.style.opacity = '0.5';
+                        setTimeout(() => {
+                            postElement.remove();
+
+                            // 更新统计
+                            updateStats();
+
+                            // 如果所有帖子都处理完了，显示空状态
+                            const remainingPosts = document.querySelectorAll('.post-card').length;
+                            if (remainingPosts === 0) {
+                                document.getElementById('emptyState').style.display = 'block';
+                            }
+                        }, 300);
+                    }
+                } else {
+                    showAlert(data.error || `${action}失败`, 'danger');
+                    reviewButton.innerHTML = originalText;
+                    reviewButton.disabled = false;
+                }
+            })
+            .catch(error => {
+                console.error('审核失败:', error);
+                showAlert('网络错误，请重试', 'danger');
+                reviewButton.innerHTML = originalText;
+                reviewButton.disabled = false;
+            });
+        }
+
+        // 显示提示消息
+        function showAlert(message, type) {
+            // 移除现有的提示
+            const existingAlert = document.querySelector('.alert-toast');
+            if (existingAlert) {
+                existingAlert.remove();
+            }
+
+            // 创建新提示
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-toast position-fixed`;
+            alertDiv.style.cssText = `
+                top: 20px;
+                right: 20px;
+                z-index: 1050;
+                min-width: 300px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            `;
+            alertDiv.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'} me-2"></i>
+                    <span>${message}</span>
+                    <button type="button" class="btn-close ms-auto" onclick="this.parentElement.parentElement.remove()"></button>
+                </div>
+            `;
+
+            document.body.appendChild(alertDiv);
+
+            // 3秒后自动移除
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 3000);
+        }
+
+        // 更新统计信息
+        function updateStats() {
+            const pendingPosts = document.querySelectorAll('.post-card').length;
+            document.getElementById('pendingCount').textContent = pendingPosts;
+        }
+
+        // 切换最近审核记录的显示
+        function toggleRecentReviews() {
+            const recentReviews = document.getElementById('recentReviews');
+            const button = event.currentTarget;
+
+            if (recentReviews.style.display === 'none') {
+                recentReviews.style.display = 'block';
+                button.innerHTML = '<i class="fas fa-chevron-up"></i>';
+                loadRecentReviews();
+            } else {
+                recentReviews.style.display = 'none';
+                button.innerHTML = '<i class="fas fa-chevron-down"></i>';
+            }
+        }
+
+        // 加载最近审核记录
+        function loadRecentReviews() {
+            // 这里可以添加加载最近审核记录的API调用
+            // 暂时显示示例数据
+            const container = document.getElementById('recentReviewsList');
+            container.innerHTML = `
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    最近审核记录功能正在开发中...
+                </div>
+            `;
+        }
+
+        // 登出功能
+        function logout() {
+            if (confirm('确定要退出登录吗？')) {
+                fetch('/api/logout', { method: 'POST' })
+                    .then(() => window.location.href = '/login');
+            }
+        }
+
+        // HTML转义函数
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
