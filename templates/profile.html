@@ -143,7 +143,7 @@
     </style>
 </head>
 <body>
-    <!-- 导航栏 -->
+    <!-- 导航栏：修复图标格式+规整布局，保留所有功能 -->
     <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
         <div class="container">
             <a class="navbar-brand" href="/">
@@ -157,23 +157,28 @@
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
                         <a class="nav-link" href="/">
-                            <i class="fas fa-home"></i> 首页
+                            <i class="fas fa-home me-1"></i> 首页
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/personal_home">
+                            <i class="fas fa-user-circle me-1"></i> 我的首页
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link active" href="/profile">
-                            <i class="fas fa-user"></i> 个人中心
+                            <i class="fas fa-user me-1"></i> 个人中心
                         </a>
                     </li>
-                    <!-- 教师专属导航 - 登录后动态显示 -->
+                    <!-- 教师专属导航：保留原有标识和路径，仅优化格式 -->
                     <li class="nav-item teacher-exclusive" id="reviewNavItem">
                         <a class="nav-link" href="/teacher/review">
-                            <i class="fas fa-gavel"></i> 帖子审核
+                            <i class="fas fa-gavel me-1"></i> 帖子审核
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="#" onclick="logout()">
-                            <i class="fas fa-sign-out-alt"></i> 退出
+                            <i class="fas fa-sign-out-alt me-1"></i> 退出
                         </a>
                     </li>
                 </ul>
@@ -707,7 +712,9 @@
         }
         // 检查登录状态
         function checkLoginStatus() {
-            fetch('/api/current-user')
+            fetch('/api/current-user',{
+                credentials: 'include'
+            })
                 .then(response => {
                     if (response.status === 401) {
                         window.location.href = '/login';
@@ -736,7 +743,9 @@
         }
         // 加载用户基本资料
         function loadUserProfile() {
-            fetch('/api/user/profile')
+            fetch('/api/user/profile',{
+                credentials: 'include'
+            })
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
@@ -750,7 +759,9 @@
         }
         // 加载用户详细资料
         function loadDetailedProfile() {
-            fetch('/api/user/profile/detailed')
+            fetch('/api/user/profile/detailed',{
+                credentials: 'include'
+            })
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
@@ -769,7 +780,9 @@
         function loadMyPosts() {
             const loadingElement = document.getElementById('postsLoading');
             loadingElement.style.display = 'block';
-            fetch('/api/posts')
+            fetch('/api/posts',{
+                credentials: 'include'
+            })
                 .then(response => response.json())
                 .then(result => {
                     loadingElement.style.display = 'none';
@@ -895,7 +908,9 @@
         }
         // 加载已参与活动
         function loadJoinedActivities() {
-            fetch('/api/user/joined-activities')
+            fetch('/api/user/joined-activities',{
+                credentials: 'include'
+            })
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
@@ -914,7 +929,9 @@
         }
         // 加载收藏活动
         function loadFavorites() {
-            fetch('/api/user/favorites')
+            fetch('/api/user/favorites',{
+                credentials: 'include'
+            })
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
@@ -1077,7 +1094,7 @@
         // 取消报名
         function leaveActivity(activityId) {
             if (!confirm('确定要取消报名吗？')) return;
-            fetch(`/api/activities/${activityId}/leave`, { method: 'POST' })
+            fetch(`/api/activities/${activityId}/leave`, { method: 'POST' },{credentials: 'include'})
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
@@ -1096,7 +1113,7 @@
         // 取消收藏
         function unfavoriteActivity(activityId) {
             if (!confirm('确定要取消收藏吗？')) return;
-            fetch(`/api/activities/${activityId}/favorite`, { method: 'POST' })
+            fetch(`/api/activities/${activityId}/favorite`, { method: 'POST' },{credentials: 'include'})
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
@@ -1115,7 +1132,7 @@
         // 删除我的帖子
         function deleteMyPost(postId) {
             if (!confirm('确定要删除该帖子吗？删除后不可恢复！')) return;
-            fetch(`/api/posts/${postId}`, { method: 'DELETE' })
+            fetch(`/api/posts/${postId}`, { method: 'DELETE' },{credentials: 'include'})
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
@@ -1156,7 +1173,7 @@
         }
         // 检查头像状态
         function checkAvatarStatus() {
-            fetch('/api/user/avatar')
+            fetch('/api/user/avatar',{credentials: 'include'})
                 .then(response => response.json())
                 .then(result => {
                     if (result.success && result.data.has_custom_avatar) {
@@ -1193,8 +1210,9 @@
             `;
             fetch('/api/user/avatar', {
                 method: 'POST',
-                body: formData
+                body: formData,
                 // 注意：不要设置 Content-Type header，浏览器会自动设置 multipart/form-data
+                credentials: 'include'
             })
             .then(response => response.json())
             .then(result => {
@@ -1261,7 +1279,7 @@
                 return;
             }
             // 调用后端API修改密码
-            fetch('/api/user/change-password', {
+            fetch('/api/user/change-password', {credentials: 'include'},{
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -1308,7 +1326,7 @@
         }
         // 登出功能
         function logout() {
-            fetch('/api/logout', { method: 'POST' })
+            fetch('/api/logout', { method: 'POST' },{credentials: 'include'})
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {

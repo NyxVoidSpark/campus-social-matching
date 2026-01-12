@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>创建活动 - 校园社交活动匹配系统</title>
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css">
+</head>
+<body class="bg-light">
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header text-center">
+                        <h2>创建活动</h2>
+                    </div>
+                    <div class="card-body">
+                        <form id="createActivityForm">
+                            <div class="form-group mb-3">
+                                <label for="title">活动标题</label>
+                                <input type="text" class="form-control" id="title" name="title" required>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="type">活动类型</label>
+                                <select class="form-select" id="type" name="type" required>
+                                    <option value="">请选择类型</option>
+                                    <option value="学术">学术</option>
+                                    <option value="体育">体育</option>
+                                    <option value="艺术">艺术</option>
+                                    <option value="其他">其他</option>
+                                </select>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="tags">活动标签（用逗号分隔）</label>
+                                <input type="text" class="form-control" id="tags" name="tags" placeholder="如：Java,竞赛,户外">
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="time">活动时间</label>
+                                <input type="datetime-local" class="form-control" id="time" name="time" required>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="location">活动地点</label>
+                                <input type="text" class="form-control" id="location" name="location" required>
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="description">活动描述</label>
+                                <textarea class="form-control" id="description" name="description" rows="4" placeholder="详细描述活动内容、要求等"></textarea>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary flex-1">提交活动</button>
+                                <a href="/" class="btn btn-secondary flex-1">取消</a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('createActivityForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                title: document.getElementById('title').value,
+                type: document.getElementById('type').value,
+                tags: document.getElementById('tags').value,
+                time: document.getElementById('time').value,
+                location: document.getElementById('location').value,
+                description: document.getElementById('description').value
+            };
+            const res = await fetch('/api/activities', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            const result = await res.json();
+            alert(result.message);
+            if (result.success) window.location.href = '/';
+        });
+    </script>
+</body>
+</html>

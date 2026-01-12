@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>个性化首页 - 校园社交活动匹配系统</title>
+    <!-- 引入Bootstrap，无需本地下载，直接在线引用 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* 简单自定义样式，贴合校园风格，可按需修改 */
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+        .activity-item, .post-item {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <!-- 顶部导航栏（简化版，可复用你项目现有导航栏） -->
+        <nav class="navbar navbar-expand-lg navbar-light bg-light mb-4">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="#">校园社交活动系统</a>
+                <div class="navbar-nav">
+                    <a class="nav-link active" aria-current="page" href="/personal_home">我的首页</a>
+                    <a class="nav-link" href="#">活动列表</a>
+                    <a class="nav-link" href="#">发布帖子</a>
+                </div>
+            </div>
+        </nav>
+
+        <div class="row">
+            <!-- 左侧：用户信息卡片 -->
+            <div class="col-md-3">
+                <div class="card text-center p-4">
+                    <!-- 默认头像，后续可替换为你项目的用户头像字段 -->
+                    <img 
+                        src="{{ url_for('static', filename='images/default.jpg') }}" 
+                        class="avatar mx-auto mb-3" 
+                        alt="用户头像"
+                    >
+                    <h5 class="card-title">{{ current_user.username }}</h5>
+                    <p class="text-muted">{{ current_user.role }} | 待参与活动：{{ upcoming_activities|length }}场</p>
+                    <a href="/edit_profile" class="btn btn-sm btn-primary">编辑个人资料</a>
+                </div>
+            </div>
+
+            <!-- 右侧：主要内容区域 -->
+            <div class="col-md-9">
+                <!-- 我的待参与活动（适配time字段和upcoming状态） -->
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="mb-0">我的待参与活动</h6>
+                    </div>
+                    <div class="card-body">
+                        {% if upcoming_activities %}
+                            {% for activity in upcoming_activities %}
+                                <div class="activity-item">
+                                    <h6><a href="/activity_detail/{{ activity.id }}">{{ activity.title }}</a></h6>
+                                    <p class="text-sm text-muted">时间：{{ activity.time }}</p> <!-- 适配你项目的time字段 -->
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="text-muted text-center">暂无待参与活动，快去报名吧！</p>
+                        {% endif %}
+                        <a href="/my_activities" class="btn btn-sm btn-outline-primary float-end">查看全部</a>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <!-- 校园热门活动（适配participant_count字段） -->
+                    <div class="col-md-7">
+                        <div class="card">
+                            <div class="card-header bg-success text-white">
+                                <h6 class="mb-0">校园热门活动</h6>
+                            </div>
+                            <div class="card-body">
+                                {% if hot_activities %}
+                                    {% for activity in hot_activities %}
+                                        <div class="activity-item">
+                                            <h6><a href="/activity_detail/{{ activity.id }}">{{ activity.title }}</a></h6>
+                                            <p class="text-sm text-muted">参与人数：{{ activity.participant_count }}人 | 时间：{{ activity.time }}</p> <!-- 适配两个核心字段 -->
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="text-muted text-center">暂无热门活动</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 最新校园帖子 -->
+                    <div class="col-md-5">
+                        <div class="card">
+                            <div class="card-header bg-info text-white">
+                                <h6 class="mb-0">最新校园帖子</h6>
+                            </div>
+                            <div class="card-body">
+                                {% if latest_posts %}
+                                    {% for post in latest_posts %}
+                                        <div class="post-item">
+                                            <h6><a href="/post_detail/{{ post.id }}">{{ post.title|truncate(20) }}</a></h6>
+                                            <p class="text-sm text-muted">{{ post.created_at }}</p> <!-- 适配Post表的创建时间字段 -->
+                                        </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="text-muted text-center">暂无最新帖子</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 引入Bootstrap JS，可选 -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

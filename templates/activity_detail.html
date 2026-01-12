@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ activity.title }} - 校园社交活动匹配系统</title>
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css">
+</head>
+<body class="bg-light">
+    <div class="container mt-5">
+        <a href="/" class="btn btn-secondary mb-3">返回首页</a>
+        <div class="card">
+            <div class="card-header">
+                <h2>{{ activity.title }}</h2>
+                <span class="badge bg-primary">{{ activity.type }}</span>
+                {% if activity.tags %}
+                    {% for tag in activity.tags.split(',') %}
+                        <span class="badge bg-secondary">{{ tag }}</span>
+                    {% endfor %}
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <p><strong>活动时间：</strong>{{ activity.time }}</p>
+                        <p><strong>活动地点：</strong>{{ activity.location }}</p>
+                        <p><strong>发起人：</strong>{{ initiator.username if initiator else '未知' }}</p>
+                        <p><strong>参与人数：</strong>{{ activity.participant_count }}</p>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <h4>活动描述</h4>
+                    <p>{{ activity.description or '暂无描述' }}</p>
+                </div>
+                <!-- 只保留这一个按钮（添加data-activity-id属性），删除外面的重复按钮 -->
+                {% if username %}
+                    <button id="joinBtn" class="btn btn-success" data-activity-id="{{ activity.id }}">立即报名</button>
+                {% else %}
+                    <a href="/login" class="btn btn-success">登录后报名</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+<!-- 2. JS代码（纯JS，无任何Flask语法，不会标红） -->
+<script>
+const joinBtn = document.getElementById('joinBtn');
+if (joinBtn) {  // 只有登录了才会有这个按钮，避免报错
+    joinBtn.addEventListener('click', async () => {
+        // 从data属性读取活动ID（纯JS操作，无Flask语法）
+        const activityId = joinBtn.dataset.activityId;
+        const res = await fetch(`/api/activities/${activityId}/join`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        const result = await res.json();
+        alert(result.message);
+        if (result.success) {
+            window.location.reload();  // 报名成功后刷新页面，更新参与人数
+        }
+    });
+}
+</script>
+</body>
+</html>

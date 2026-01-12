@@ -16,10 +16,13 @@
         .form-group {
             margin-bottom: 15px;
         }
+        body {
+            background-color: #f8f9fa;
+        }
     </style>
 </head>
 <body>
-    <div class="auth-container">
+    <div class="auth-container bg-white">
         <h2 class="text-center mb-4">用户登录</h2>
         <form id="loginForm">
             <div class="form-group">
@@ -43,20 +46,24 @@
             e.preventDefault();
             const errorMsg = document.getElementById('errorMsg');
             errorMsg.textContent = '';
-
+            
             const data = {
                 username: document.getElementById('username').value,
                 password: document.getElementById('password').value
             };
-
+            
+            // 🔥 关键修复：添加 credentials: 'include'
             fetch('/api/login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(data)
+                body: JSON.stringify(data),
+                credentials: 'include'  // 添加这一行
             })
             .then(response => response.json())
             .then(result => {
                 if (result.success) {
+                    console.log('登录成功，跳转到首页');
+                    // 登录成功后跳转到首页
                     window.location.href = '/';
                 } else {
                     errorMsg.textContent = result.error;
