@@ -1,0 +1,64 @@
+############################
+# Python / Flask 基础忽略
+############################
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.log
+*.sqlite3
+
+# 虚拟环境
+venv/
+.venv/
+env/
+ENV/
+
+############################
+# 操作系统 / 编辑器
+############################
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VSCode / Cursor
+.vscode/
+.cursor/
+
+############################
+# 环境配置 / 私密信息
+############################
+.env
+*.env.local
+*.env.*.local
+
+############################
+# 数据库文件
+############################
+instance/
+*.db
+*.sqlite
+
+############################
+# 上传文件（运行时生成）
+############################
+# 主上传目录
+uploads/
+
+# Flask static 下的运行时上传
+static/uploads/
+
+############################
+# 测试 / 覆盖率
+############################
+.pytest_cache/
+.coverage
+htmlcov/
+

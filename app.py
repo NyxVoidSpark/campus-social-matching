@@ -108,6 +108,26 @@ class Follow(db.Model):
     followed_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
     __table_args__ = (db.UniqueConstraint('follower_id', 'followed_id', name='_follower_followed_uc'),)
 
+# 好友关系表
+class Friendship(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user1_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
+    user2_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending: 待处理, accepted: 已接受, rejected: 已拒绝
+    requester_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)  # 发起请求的用户ID
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    updated_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    __table_args__ = (db.UniqueConstraint('user1_id', 'user2_id', name='_user1_user2_uc'),)
+
+# 消息表
+class Message(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
+    receiver_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
 # ---------------------------- 帖子与审核相关模型 ----------------------------
 
 # 栏目
@@ -384,6 +404,18 @@ def profile_page():
         return redirect(url_for('login_page'))
     return render_template("profile.html", user=user)
 
+# 好友管理页
+@app.route('/friends')
+@login_required
+def friends_page():
+    return render_template('friends.html')
+
+# 消息中心页
+@app.route('/messages')
+@login_required
+def messages_page():
+    return render_template('messages.html')
+
 # 创建活动页
 @app.route('/create-activity')
 @login_required
@@ -497,7 +529,8 @@ def login():
         session["username"] = user.username
         session["role"] = user.role  # 记录用户身份
         
-        print(f"DEBUG: 用户 {user.username} 登录成功，session_id: {session.sid}")
+        # 注意：Flask 的 SecureCookieSession 没有 sid 属性，这里只打印基础信息即可
+        print(f"DEBUG: 用户 {user.username} 登录成功，user_id: {user.id}")
         
         return jsonify({
             "success": True,
@@ -1028,7 +1061,8 @@ def create_post_api():
                     unique = f"{uuid.uuid4().hex[:8]}_{fname}"
                     save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique)
                     f.save(save_path)
-                    uploaded_media.append({'url': f"/{save_path.replace('\\', '/')}", 'filename': fname})
+                    normalized_path = save_path.replace('\\', '/')
+                    uploaded_media.append({'url': f"/{normalized_path}", 'filename': fname})
     
     if not title or not category:
         return jsonify({'success': False, 'error': '缺少 title 或 category'}), 400
@@ -1495,6 +1529,447 @@ def change_password():
     db.session.commit()
     
     return jsonify({"success": True, "message": "密码修改成功，请重新登录"})
+
+# ---------------------------- 好友功能API ----------------------------
+
+# 发送好友请求
+@app.route('/api/friends/request', methods=['POST'])
+@login_required
+def send_friend_request():
+    if not request.is_json:
+        return jsonify({"success": False, "error": "请求格式必须为JSON"}), 400
+    
+    data = request.get_json()
+    target_user_id = data.get('user_id')
+    
+    if not target_user_id:
+        return jsonify({"success": False, "error": "请提供目标用户ID"}), 400
+    
+    current_user_id = session["user_id"]
+    
+    # 不能添加自己为好友
+    if current_user_id == target_user_id:
+        return jsonify({"success": False, "error": "不能添加自己为好友"}), 400
+    
+    # 检查目标用户是否存在
+    target_user = find_user_by_id(target_user_id)
+    if not target_user:
+        return jsonify({"success": False, "error": "目标用户不存在"}), 404
+    
+    # 检查是否已经是好友或已有请求
+    # 确保 user1_id < user2_id 以保持一致性
+    user1_id = min(current_user_id, target_user_id)
+    user2_id = max(current_user_id, target_user_id)
+    
+    existing_friendship = Friendship.query.filter_by(
+        user1_id=user1_id,
+        user2_id=user2_id
+    ).first()
+    
+    if existing_friendship:
+        if existing_friendship.status == 'accepted':
+            return jsonify({"success": False, "error": "你们已经是好友了"}), 400
+        elif existing_friendship.status == 'pending':
+            return jsonify({"success": False, "error": "好友请求已发送，等待对方处理"}), 400
+    
+    # 创建好友请求
+    friendship = Friendship(
+        user1_id=user1_id,
+        user2_id=user2_id,
+        status='pending',
+        requester_id=current_user_id
+    )
+    
+    try:
+        db.session.add(friendship)
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": "好友请求已发送",
+            "data": {"friendship_id": friendship.id}
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": f"发送失败：{str(e)}"}), 500
+
+# 处理好友请求（接受/拒绝）
+@app.route('/api/friends/request/<int:friendship_id>', methods=['POST'])
+@login_required
+def handle_friend_request(friendship_id):
+    if not request.is_json:
+        return jsonify({"success": False, "error": "请求格式必须为JSON"}), 400
+    
+    data = request.get_json()
+    action = data.get('action')  # 'accept' 或 'reject'
+    
+    if action not in ['accept', 'reject']:
+        return jsonify({"success": False, "error": "action必须是accept或reject"}), 400
+    
+    current_user_id = session["user_id"]
+    friendship = Friendship.query.get(friendship_id)
+    
+    if not friendship:
+        return jsonify({"success": False, "error": "好友请求不存在"}), 404
+    
+    # 检查是否有权限处理（必须是接收方）
+    if friendship.user1_id != current_user_id and friendship.user2_id != current_user_id:
+        return jsonify({"success": False, "error": "无权限处理此请求"}), 403
+    
+    # 检查是否是请求发起者
+    if friendship.requester_id == current_user_id:
+        return jsonify({"success": False, "error": "不能处理自己发起的请求"}), 400
+    
+    # 检查请求状态
+    if friendship.status != 'pending':
+        return jsonify({"success": False, "error": "该请求已处理"}), 400
+    
+    # 更新状态
+    friendship.status = 'accepted' if action == 'accept' else 'rejected'
+    friendship.updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    try:
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": f"已{'接受' if action == 'accept' else '拒绝'}好友请求",
+            "data": {"status": friendship.status}
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": f"处理失败：{str(e)}"}), 500
+
+# 获取好友列表
+@app.route('/api/friends', methods=['GET'])
+@login_required
+def get_friends():
+    current_user_id = session["user_id"]
+    
+    # 获取所有已接受的好友关系
+    friendships = Friendship.query.filter(
+        db.or_(
+            Friendship.user1_id == current_user_id,
+            Friendship.user2_id == current_user_id
+        ),
+        Friendship.status == 'accepted'
+    ).all()
+    
+    friends = []
+    for friendship in friendships:
+        # 确定对方用户ID
+        friend_id = friendship.user2_id if friendship.user1_id == current_user_id else friendship.user1_id
+        friend_user = find_user_by_id(friend_id)
+        
+        if friend_user:
+            friends.append({
+                "user_id": friend_user.id,
+                "username": friend_user.username,
+                "avatar": friend_user.avatar,
+                "bio": friend_user.bio,
+                "created_at": friendship.created_at
+            })
+    
+    return jsonify({
+        "success": True,
+        "data": friends,
+        "count": len(friends)
+    })
+
+# 获取待处理的好友请求（收到的请求）
+@app.route('/api/friends/requests', methods=['GET'])
+@login_required
+def get_friend_requests():
+    current_user_id = session["user_id"]
+    
+    # 获取所有待处理的请求（对方发起的）
+    requests = Friendship.query.filter(
+        db.or_(
+            Friendship.user1_id == current_user_id,
+            Friendship.user2_id == current_user_id
+        ),
+        Friendship.status == 'pending',
+        Friendship.requester_id != current_user_id
+    ).all()
+    
+    result = []
+    for req in requests:
+        requester_id = req.requester_id
+        requester = find_user_by_id(requester_id)
+        
+        if requester:
+            result.append({
+                "friendship_id": req.id,
+                "requester_id": requester.id,
+                "requester_username": requester.username,
+                "requester_avatar": requester.avatar,
+                "created_at": req.created_at
+            })
+    
+    return jsonify({
+        "success": True,
+        "data": result,
+        "count": len(result)
+    })
+
+# 删除好友
+@app.route('/api/friends/<string:friend_id>', methods=['DELETE'])
+@login_required
+def delete_friend(friend_id):
+    current_user_id = session["user_id"]
+    
+    # 确保 user1_id < user2_id
+    user1_id = min(current_user_id, friend_id)
+    user2_id = max(current_user_id, friend_id)
+    
+    friendship = Friendship.query.filter_by(
+        user1_id=user1_id,
+        user2_id=user2_id,
+        status='accepted'
+    ).first()
+    
+    if not friendship:
+        return jsonify({"success": False, "error": "好友关系不存在"}), 404
+    
+    try:
+        db.session.delete(friendship)
+        db.session.commit()
+        return jsonify({"success": True, "message": "已删除好友"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": f"删除失败：{str(e)}"}), 500
+
+# ---------------------------- 消息功能API ----------------------------
+
+# 发送消息
+@app.route('/api/messages', methods=['POST'])
+@login_required
+def send_message():
+    if not request.is_json:
+        return jsonify({"success": False, "error": "请求格式必须为JSON"}), 400
+    
+    data = request.get_json()
+    receiver_id = data.get('receiver_id')
+    content = data.get('content', '').strip()
+    
+    if not receiver_id:
+        return jsonify({"success": False, "error": "请提供接收者ID"}), 400
+    
+    if not content:
+        return jsonify({"success": False, "error": "消息内容不能为空"}), 400
+    
+    current_user_id = session["user_id"]
+    
+    # 不能给自己发消息
+    if current_user_id == receiver_id:
+        return jsonify({"success": False, "error": "不能给自己发消息"}), 400
+    
+    # 检查接收者是否存在
+    receiver = find_user_by_id(receiver_id)
+    if not receiver:
+        return jsonify({"success": False, "error": "接收者不存在"}), 404
+    
+    # 检查是否是好友关系（可选：如果要求必须是好友才能发消息）
+    user1_id = min(current_user_id, receiver_id)
+    user2_id = max(current_user_id, receiver_id)
+    friendship = Friendship.query.filter_by(
+        user1_id=user1_id,
+        user2_id=user2_id,
+        status='accepted'
+    ).first()
+    
+    # 注释掉这个检查，允许非好友也能发消息
+    # if not friendship:
+    #     return jsonify({"success": False, "error": "只能给好友发消息"}), 403
+    
+    # 创建消息
+    message = Message(
+        sender_id=current_user_id,
+        receiver_id=receiver_id,
+        content=content,
+        is_read=False
+    )
+    
+    try:
+        db.session.add(message)
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": "消息已发送",
+            "data": {
+                "message_id": message.id,
+                "created_at": message.created_at
+            }
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": f"发送失败：{str(e)}"}), 500
+
+# 获取与某个用户的聊天记录
+@app.route('/api/messages/<string:user_id>', methods=['GET'])
+@login_required
+def get_messages(user_id):
+    current_user_id = session["user_id"]
+    
+    # 检查目标用户是否存在
+    target_user = find_user_by_id(user_id)
+    if not target_user:
+        return jsonify({"success": False, "error": "用户不存在"}), 404
+    
+    # 获取双方的所有消息（按时间排序）
+    messages = Message.query.filter(
+        db.or_(
+            db.and_(Message.sender_id == current_user_id, Message.receiver_id == user_id),
+            db.and_(Message.sender_id == user_id, Message.receiver_id == current_user_id)
+        )
+    ).order_by(Message.created_at.asc()).all()
+    
+    # 标记未读消息为已读
+    unread_messages = [m for m in messages if m.receiver_id == current_user_id and not m.is_read]
+    for msg in unread_messages:
+        msg.is_read = True
+    
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+    
+    # 格式化消息数据
+    result = []
+    for msg in messages:
+        result.append({
+            "id": msg.id,
+            "sender_id": msg.sender_id,
+            "receiver_id": msg.receiver_id,
+            "content": msg.content,
+            "is_read": msg.is_read,
+            "created_at": msg.created_at,
+            "is_own": msg.sender_id == current_user_id
+        })
+    
+    return jsonify({
+        "success": True,
+        "data": result,
+        "count": len(result),
+        "target_user": {
+            "user_id": target_user.id,
+            "username": target_user.username,
+            "avatar": target_user.avatar
+        }
+    })
+
+# 获取所有聊天会话列表（最近联系的人）
+@app.route('/api/messages/conversations', methods=['GET'])
+@login_required
+def get_conversations():
+    current_user_id = session["user_id"]
+    
+    # 获取所有有消息往来的用户
+    # 获取所有与当前用户相关的消息
+    all_messages = Message.query.filter(
+        db.or_(
+            Message.sender_id == current_user_id,
+            Message.receiver_id == current_user_id
+        )
+    ).order_by(Message.created_at.desc()).all()
+    
+    conversations = []
+    seen_users = set()
+    
+    for msg in all_messages:
+        # 确定对方用户ID
+        other_user_id = msg.receiver_id if msg.sender_id == current_user_id else msg.sender_id
+        
+        if other_user_id not in seen_users:
+            seen_users.add(other_user_id)
+            other_user = find_user_by_id(other_user_id)
+            
+            if other_user:
+                # 获取未读消息数
+                unread_count = Message.query.filter_by(
+                    sender_id=other_user_id,
+                    receiver_id=current_user_id,
+                    is_read=False
+                ).count()
+                
+                # 获取最后一条消息（当前消息就是按时间倒序的，第一个就是最新的）
+                conversations.append({
+                    "user_id": other_user.id,
+                    "username": other_user.username,
+                    "avatar": other_user.avatar,
+                    "last_message": msg.content,
+                    "last_message_time": msg.created_at,
+                    "unread_count": unread_count,
+                    "is_own_last_message": msg.sender_id == current_user_id
+                })
+    
+    return jsonify({
+        "success": True,
+        "data": conversations,
+        "count": len(conversations)
+    })
+
+# 获取未读消息数
+@app.route('/api/messages/unread-count', methods=['GET'])
+@login_required
+def get_unread_count():
+    current_user_id = session["user_id"]
+    
+    unread_count = Message.query.filter_by(
+        receiver_id=current_user_id,
+        is_read=False
+    ).count()
+    
+    return jsonify({
+        "success": True,
+        "data": {"unread_count": unread_count}
+    })
+
+# 搜索用户（用于添加好友）
+@app.route('/api/users/search', methods=['GET'])
+@login_required
+def search_users():
+    keyword = request.args.get('keyword', '').strip()
+    
+    if not keyword:
+        return jsonify({"success": False, "error": "请提供搜索关键词"}), 400
+    
+    current_user_id = session["user_id"]
+    
+    # 搜索用户名或邮箱
+    users = User.query.filter(
+        db.or_(
+            User.username.like(f"%{keyword}%"),
+            User.email.like(f"%{keyword}%")
+        ),
+        User.id != current_user_id
+    ).limit(20).all()
+    
+    result = []
+    for user in users:
+        # 检查好友关系状态
+        user1_id = min(current_user_id, user.id)
+        user2_id = max(current_user_id, user.id)
+        friendship = Friendship.query.filter_by(
+            user1_id=user1_id,
+            user2_id=user2_id
+        ).first()
+        
+        friendship_status = None
+        if friendship:
+            friendship_status = friendship.status
+        
+        result.append({
+            "user_id": user.id,
+            "username": user.username,
+            "avatar": user.avatar,
+            "bio": user.bio,
+            "friendship_status": friendship_status  # None, 'pending', 'accepted', 'rejected'
+        })
+    
+    return jsonify({
+        "success": True,
+        "data": result,
+        "count": len(result)
+    })
 
 @app.route('/personal_home')
 @login_required
