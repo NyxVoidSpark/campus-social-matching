@@ -1,7 +1,8 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import or_ as db_or
 import os
 from dotenv import load_dotenv
 import uuid
@@ -23,10 +24,7 @@ app.secret_key = 'campus_social_2025'  # 用于session加密
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600 * 24 * 7  # Session有效期7天
 
 # MySQL数据库配置
-app.config['SQLALCHEMY_DATABASE_URI'] = (
-    f"mysql+pymysql://{os.getenv('MYSQL_USER', 'root')}:{os.getenv('MYSQL_PASSWORD', '123456')}@"
-    f"{os.getenv('MYSQL_HOST', 'localhost')}:{os.getenv('MYSQL_PORT', '3306')}/{os.getenv('MYSQL_DB', 'campus_social')}?charset=utf8mb4"
-)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///campus_social.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 添加配置文件上传
@@ -287,6 +285,17 @@ class PointsLedger(db.Model):
     reason = db.Column(db.String(200), default='')
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
+# 通知系统
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    user_id = db.Column(db.String(8), db.ForeignKey('user.id'), nullable=False)
+    type = db.Column(db.String(50), nullable=False)  # friend_request, comment, like, system, etc.
+    title = db.Column(db.String(200), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    related_id = db.Column(db.String(50), default='')  # 相关对象的ID，如帖子ID、用户ID等
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
 # 给 User 添加常用关系属性
 User.groups = db.relationship('Group', secondary=group_members, backref=db.backref('members'))
 
@@ -339,6 +348,27 @@ def is_teacher(user_id):
     """检查是否为教师"""
     user = find_user_by_id(user_id)
     return user and user.role == 'teacher'
+
+def create_notification(user_id, type, title, content, related_id=''):
+    """创建通知"""
+    notification = Notification(
+        user_id=user_id,
+        type=type,
+        title=title,
+        content=content,
+        related_id=related_id
+    )
+    db.session.add(notification)
+    db.session.commit()
+    return notification
+
+def get_user_notifications(user_id, limit=20):
+    """获取用户的通知"""
+    return Notification.query.filter_by(user_id=user_id).order_by(Notification.created_at.desc()).limit(limit).all()
+
+def get_unread_notification_count(user_id):
+    """获取未读通知数量"""
+    return Notification.query.filter_by(user_id=user_id, is_read=False).count()
 
 # 登录检查装饰器
 def login_required(f):
@@ -439,6 +469,143 @@ def teacher_review_page():
     if not is_teacher(session["user_id"]):
         return redirect(url_for('home'))
     return render_template('teacher_review.html')
+
+# 论坛首页（帖子列表）
+@app.route('/forum')
+@login_required
+def forum_page():
+    page = request.args.get('page', 1, type=int)
+    category = request.args.get('category', '')
+    sort_by = request.args.get('sort', 'newest')  # newest, hottest, most_replied
+    search = request.args.get('search', '').strip()
+    
+    query = Post.query.filter_by(review_status='approved')
+    
+    if category:
+        query = query.filter_by(category=category)
+    
+    if search:
+        # 搜索标题或内容
+        query = query.filter(
+            db_or(
+                Post.title.contains(search),
+                Post.content.contains(search)
+            )
+        )
+    
+    if sort_by == 'newest':
+        query = query.order_by(Post.created_at.desc())
+    elif sort_by == 'hottest':
+        # 简单的热度排序，可以根据点赞数等计算
+        query = query.order_by(Post.created_at.desc())  # 暂时用时间排序
+    elif sort_by == 'most_replied':
+        # 根据评论数排序
+        query = query.order_by(Post.created_at.desc())  # 暂时用时间排序
+    
+    posts = query.paginate(page=page, per_page=20, error_out=False)
+    
+    return render_template('forum.html', 
+                         posts=posts, 
+                         current_category=category,
+                         sort_by=sort_by,
+                         search=search,
+                         categories=POST_CATEGORIES)
+
+# 发帖页面
+@app.route('/create-post', methods=['GET', 'POST'])
+@login_required
+def create_post_page():
+    if request.method == 'POST':
+        title = request.form.get('title')
+        category = request.form.get('category')
+        content = request.form.get('content')
+        tags = request.form.get('tags', '')
+        
+        if not title or not category or not content:
+            flash('标题、栏目和内容不能为空', 'error')
+            return redirect(request.url)
+        
+        # 创建帖子
+        post = Post(
+            title=title,
+            category=category,
+            content=content,
+            tags=tags,
+            author_id=session['user_id'],
+            review_status='pending' if not is_teacher(session['user_id']) else 'approved'
+        )
+        
+        db.session.add(post)
+        db.session.commit()
+        
+        flash('帖子发布成功！', 'success')
+        return redirect(url_for('post_detail', post_id=post.id))
+    
+    return render_template('create_post.html', categories=POST_CATEGORIES)
+
+# 帖子详情页面
+@app.route('/post/<int:post_id>')
+@login_required
+def post_detail(post_id):
+    post = Post.query.get_or_404(post_id)
+    
+    # 检查权限（审核通过的或作者本人或教师）
+    if post.review_status != 'approved' and post.author_id != session['user_id'] and not is_teacher(session['user_id']):
+        abort(403)
+    
+    # 获取评论
+    comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.asc()).all()
+    
+    # 获取作者信息
+    author = User.query.get(post.author_id)
+    
+    return render_template('post_detail.html', 
+                         post=post, 
+                         comments=comments, 
+                         author=author)
+
+# 添加评论
+@app.route('/post/<int:post_id>/comment', methods=['POST'])
+@login_required
+def add_comment(post_id):
+    post = Post.query.get_or_404(post_id)
+    
+    # 检查帖子是否可评论
+    if post.review_status != 'approved':
+        flash('该帖子暂未审核通过，无法评论', 'error')
+        return redirect(url_for('post_detail', post_id=post_id))
+    
+    content = request.form.get('content')
+    if not content or not content.strip():
+        flash('评论内容不能为空', 'error')
+        return redirect(url_for('post_detail', post_id=post_id))
+    
+    # 创建评论
+    comment = Comment(
+        post_id=post_id,
+        author_id=session['user_id'],
+        content=content.strip()
+    )
+    
+    db.session.add(comment)
+    
+    # 如果评论者不是帖子作者，给帖子作者发送通知
+    if post.author_id != session['user_id']:
+        author = User.query.get(post.author_id)
+        commenter = User.query.get(session['user_id'])
+        if author and commenter:
+            create_notification(
+                user_id=post.author_id,
+                type='comment',
+                title='新评论通知',
+                content=f'{commenter.username} 评论了你的帖子《{post.title}》',
+                related_id=str(post_id)
+            )
+    
+    db.session.commit()
+    
+    flash('评论发表成功！', 'success')
+    return redirect(url_for('post_detail', post_id=post_id))
 
 # ---------------------------- API接口 ----------------------------
 
@@ -1922,6 +2089,67 @@ def get_unread_count():
         "success": True,
         "data": {"unread_count": unread_count}
     })
+
+# 获取通知列表
+@app.route('/api/notifications', methods=['GET'])
+@login_required
+def get_notifications():
+    current_user_id = session["user_id"]
+    limit = request.args.get('limit', 20, type=int)
+    
+    notifications = get_user_notifications(current_user_id, limit)
+    
+    return jsonify({
+        "success": True,
+        "data": [{
+            "id": n.id,
+            "type": n.type,
+            "title": n.title,
+            "content": n.content,
+            "related_id": n.related_id,
+            "is_read": n.is_read,
+            "created_at": n.created_at
+        } for n in notifications]
+    })
+
+# 获取未读通知数
+@app.route('/api/notifications/unread-count', methods=['GET'])
+@login_required
+def get_notification_unread_count():
+    current_user_id = session["user_id"]
+    
+    unread_count = get_unread_notification_count(current_user_id)
+    
+    return jsonify({
+        "success": True,
+        "data": {"unread_count": unread_count}
+    })
+
+# 标记通知为已读
+@app.route('/api/notifications/<int:notification_id>/read', methods=['POST'])
+@login_required
+def mark_notification_read(notification_id):
+    current_user_id = session["user_id"]
+    
+    notification = Notification.query.filter_by(id=notification_id, user_id=current_user_id).first()
+    if not notification:
+        return jsonify({"success": False, "error": "通知不存在"}), 404
+    
+    notification.is_read = True
+    db.session.commit()
+    
+    return jsonify({"success": True})
+
+# 标记所有通知为已读
+@app.route('/api/notifications/mark-all-read', methods=['POST'])
+@login_required
+def mark_all_notifications_read():
+    current_user_id = session["user_id"]
+    
+    Notification.query.filter_by(user_id=current_user_id, is_read=False).update({"is_read": True})
+    db.session.commit()
+    
+    return jsonify({"success": True})
 
 # 搜索用户（用于添加好友）
 @app.route('/api/users/search', methods=['GET'])

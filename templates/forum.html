@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>校园论坛 - {{ session.username }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/main.css') }}" rel="stylesheet">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('home') }}">校园论坛</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('home') }}">首页</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('forum_page') }}">论坛</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('friends_page') }}">好友</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('messages_page') }}">消息</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                            {{ session.username }}
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('profile_page') }}">个人中心</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('logout') }}">退出登录</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- 页面标题和发帖按钮 -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>校园论坛</h2>
+            <a href="{{ url_for('create_post_page') }}" class="btn btn-primary">发布帖子</a>
+        </div>
+
+        <!-- 搜索框 -->
+        <div class="mb-4">
+            <form method="GET" action="{{ url_for('forum_page') }}" class="d-flex">
+                <input type="text" name="search" class="form-control me-2" placeholder="搜索帖子标题或内容..." value="{{ request.args.get('search', '') }}">
+                <input type="hidden" name="category" value="{{ current_category }}">
+                <input type="hidden" name="sort" value="{{ sort_by }}">
+                <button type="submit" class="btn btn-outline-primary">搜索</button>
+            </form>
+        </div>
+
+        <!-- 分类导航 -->
+        <div class="mb-4">
+            <div class="btn-group flex-wrap" role="group">
+                <a href="{{ url_for('forum_page') }}" class="btn btn-outline-secondary {% if not current_category %}active{% endif %}">全部</a>
+                {% for category in categories %}
+                <a href="{{ url_for('forum_page', category=category) }}" class="btn btn-outline-secondary {% if current_category == category %}active{% endif %}">{{ category }}</a>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- 排序选项 -->
+        <div class="mb-3">
+            <div class="btn-group" role="group">
+                <a href="{{ url_for('forum_page', category=current_category, sort='newest') }}" class="btn btn-outline-primary {% if sort_by == 'newest' %}active{% endif %}">最新</a>
+                <a href="{{ url_for('forum_page', category=current_category, sort='hottest') }}" class="btn btn-outline-primary {% if sort_by == 'hottest' %}active{% endif %}">最热</a>
+                <a href="{{ url_for('forum_page', category=current_category, sort='most_replied') }}" class="btn btn-outline-primary {% if sort_by == 'most_replied' %}active{% endif %}">最多回复</a>
+            </div>
+        </div>
+
+        <!-- 帖子列表 -->
+        <div class="row">
+            <div class="col-12">
+                {% if posts.items %}
+                    {% for post in posts.items %}
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1">
+                                    <h5 class="card-title">
+                                        <a href="{{ url_for('post_detail', post_id=post.id) }}" class="text-decoration-none">
+                                            {{ post.title }}
+                                        </a>
+                                    </h5>
+                                    <p class="card-text text-muted small">
+                                        <span class="badge bg-secondary">{{ post.category }}</span>
+                                        {% if post.tags %}
+                                            {% for tag in post.tags.split(',') %}
+                                                <span class="badge bg-light text-dark">{{ tag.strip() }}</span>
+                                            {% endfor %}
+                                        {% endif %}
+                                    </p>
+                                    <p class="card-text">
+                                        {{ post.content[:200] }}{% if post.content|length > 200 %}...{% endif %}
+                                    </p>
+                                </div>
+                                <div class="text-end small text-muted">
+                                    <div>{{ post.created_at[:10] }}</div>
+                                    <div>作者: {{ post.author.username if post.author else '未知' }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    <!-- 分页 -->
+                    <nav aria-label="帖子分页">
+                        <ul class="pagination justify-content-center">
+                            {% if posts.has_prev %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('forum_page', page=posts.prev_num, category=current_category, sort=sort_by) }}">上一页</a>
+                            </li>
+                            {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link">上一页</span>
+                            </li>
+                            {% endif %}
+
+                            {% for page_num in posts.iter_pages() %}
+                                {% if page_num %}
+                                    {% if page_num == posts.page %}
+                                    <li class="page-item active">
+                                        <span class="page-link">{{ page_num }}</span>
+                                    </li>
+                                    {% else %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="{{ url_for('forum_page', page=page_num, category=current_category, sort=sort_by) }}">{{ page_num }}</a>
+                                    </li>
+                                    {% endif %}
+                                {% else %}
+                                    <li class="page-item disabled">
+                                        <span class="page-link">...</span>
+                                    </li>
+                                {% endif %}
+                            {% endfor %}
+
+                            {% if posts.has_next %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('forum_page', page=posts.next_num, category=current_category, sort=sort_by) }}">下一页</a>
+                            </li>
+                            {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link">下一页</span>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                {% else %}
+                    <div class="text-center py-5">
+                        <p class="text-muted">暂无帖子</p>
+                        <a href="{{ url_for('create_post_page') }}" class="btn btn-primary">发布第一个帖子</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
