@@ -13,6 +13,8 @@ import json
 from difflib import SequenceMatcher
 from flask_migrate import Migrate
 from functools import wraps
+# 新增邮件相关导入
+from flask_mail import Mail, Message as FlaskMailMessage
 
 # 加载环境变量
 load_dotenv()
@@ -22,6 +24,15 @@ app = Flask(__name__)
 CORS(app, supports_credentials=True, origins=["http://localhost:5001", "http://127.0.0.1:5001"])  # 明确指定允许的来源
 app.secret_key = 'campus_social_2025'  # 用于session加密
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600 * 24 * 7  # Session有效期7天
+
+# 新增：邮件配置（从.env文件读取，或直接硬编码测试）
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.163.com')  # 示例：163邮箱SMTP服务器
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 465))  # SSL端口
+app.config['MAIL_USE_SSL'] = True
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', '你的邮箱@163.com')  # 发送验证码的邮箱
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '你的邮箱授权码')  # 邮箱授权码（不是登录密码）
+app.config['MAIL_DEFAULT_SENDER'] = ('校园活动平台', app.config['MAIL_USERNAME'])
+
 
 # MySQL数据库配置
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///campus_social.db'
@@ -37,6 +48,7 @@ app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', '
 # 初始化数据库
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)  # 绑定app和db
+mail = Mail(app)  # 初始化Mail对象，绑定到Flask应用
 
 # ---------------------------- 数据库模型（整合后） ----------------------------
 
@@ -58,6 +70,10 @@ class User(db.Model):
     avatar = db.Column(db.String(200), default='/static/images/default.jpg')  # 头像
     role = db.Column(db.String(20), default='student')  # 身份（student/teacher）
     created_at = db.Column(db.String(50), default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))  # 创建时间
+
+    # 新增：忘记密码所需字段
+    verification_code = db.Column(db.String(6), default='')  # 存储6位验证码
+    code_expire = db.Column(db.String(50), default='')  # 验证码过期时间（格式：YYYY-MM-DD HH:MM:SS）
 
 class Activity(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -387,21 +403,28 @@ with app.app_context():
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'avatars'), exist_ok=True)
     
-    # 初始化5个教师账号（如果不存在）
-    teacher_usernames = ['teacherA', 'teacherB', 'teacherC', 'teacherD', 'teacherE']
-    for username in teacher_usernames:
-        if not User.query.filter_by(username=username).first():
-            hashed_pwd = generate_password_hash('666888', method='pbkdf2:sha256')
-            teacher = User(
-                username=username,
-                email=f"{username}@school.com",
-                password=hashed_pwd,
-                role='teacher',
-                real_name=username,
-                bio=f"官方认证教师-{username}"
-            )
-            db.session.add(teacher)
-    db.session.commit()
+    # 把创建初始用户的代码封装成函数，加app上下文
+    def init_default_users():
+        # 必须加app上下文，否则无法操作数据库
+        with app.app_context():
+            # 先确保表已创建（迁移后执行）
+            db.create_all()
+
+            # 初始化5个教师账号（如果不存在）
+            teacher_usernames = ['teacherA', 'teacherB', 'teacherC', 'teacherD', 'teacherE']
+            for username in teacher_usernames:
+                if not User.query.filter_by(username=username).first():
+                    hashed_pwd = generate_password_hash('666888', method='pbkdf2:sha256')
+                    teacher = User(
+                    username=username,
+                    email=f"{username}@school.com",
+                    password=hashed_pwd,
+                    role='teacher',
+                    real_name=username,
+                    bio=f"官方认证教师-{username}"
+                )
+                db.session.add(teacher)
+                db.session.commit()
 
 # ---------------------------- 页面路由 ----------------------------
 
@@ -722,19 +745,29 @@ def logout():
 # 获取当前登录用户信息
 @app.route("/api/current-user", methods=["GET"])
 def get_current_user():
-    if not is_logged_in():
-        return jsonify({"success": False, "error": "未登录"}), 401
-    
-    # 获取用户角色
-    user = find_user_by_id(session["user_id"])
-    return jsonify({
-        "success": True,
-        "data": {
-            "username": session["username"],
-            "user_id": session["user_id"],
-            "role": user.role  # 新增角色返回
-        }
-    })
+    try:
+        # 先检查session里是否有user_id
+        if "user_id" not in session:
+            return jsonify({"error": "未登录"}), 401
+        
+        user_id = session["user_id"]
+        user = find_user_by_id(user_id)
+        
+        if not user:
+            session.pop("user_id", None)  # 清除无效user_id
+            return jsonify({"error": "用户不存在"}), 404
+        
+        # 返回用户数据（排除密码）
+        return jsonify({
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role
+        })
+    except Exception as e:
+        # 捕获所有异常，打印日志但不崩溃
+        print(f"获取当前用户失败：{str(e)}")
+        return jsonify({"error": "服务器内部错误"}), 500
 
 # 头像上传API
 @app.route("/api/user/avatar", methods=["POST"])
@@ -2231,6 +2264,113 @@ def personal_home():
         hot_activities=hot_activities,
         latest_posts=latest_posts
     )
+
+# ---------------------------- 忘记密码相关API ----------------------------
+import random
+from datetime import datetime, timedelta
+
+# 生成6位随机验证码
+def generate_verification_code() -> str:
+    return ''.join([str(random.randint(0, 9)) for _ in range(6)])
+
+# 发送验证码接口
+@app.route('/api/send-verification', methods=['POST'])
+def send_verification():
+    try:
+        if not request.is_json:
+            return jsonify({"success": False, "error": "请求格式必须为JSON"}), 400
+        
+        data = request.get_json()
+        email = data.get('email')
+        
+        # 验证邮箱
+        if not email or '@' not in email or '.' not in email:
+            return jsonify({"success": False, "error": "请输入有效的邮箱"}), 400
+        
+        # 检查邮箱是否已注册
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            return jsonify({"success": False, "error": "该邮箱未注册"}), 404
+        
+        # 生成验证码和过期时间（15分钟）
+        verification_code = generate_verification_code()
+        expire_time = (datetime.now() + timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 更新用户表中的验证码和过期时间
+        user.verification_code = verification_code
+        user.code_expire = expire_time
+        db.session.commit()
+        
+        # 发送邮件
+        msg = FlaskMailMessage(
+            subject="【校园活动平台】密码重置验证码",
+            recipients=[email],
+            body=f"""
+            您好！您正在申请重置密码，您的验证码为：{verification_code}
+            验证码有效期为15分钟，请尽快完成重置。
+            若不是您本人操作，请忽略此邮件。
+            """
+        )
+        mail.send(msg)
+        
+        return jsonify({"success": True, "message": "验证码已发送至您的邮箱"}), 200
+    
+    except Exception as e:
+        return jsonify({"success": False, "error": f"发送失败：{str(e)}"}), 500
+
+# 重置密码接口
+@app.route('/api/reset-password', methods=['POST'])
+def reset_password():
+    try:
+        if not request.is_json:
+            return jsonify({"success": False, "error": "请求格式必须为JSON"}), 400
+        
+        data = request.get_json()
+        email = data.get('email')
+        verification_code = data.get('verification_code')
+        new_password = data.get('new_password')
+        
+        # 验证参数
+        if not all([email, verification_code, new_password]):
+            return jsonify({"success": False, "error": "缺少必要参数"}), 400
+        
+        if len(new_password) < 8:
+            return jsonify({"success": False, "error": "新密码长度至少8位"}), 400
+        
+        # 查找用户
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            return jsonify({"success": False, "error": "用户不存在"}), 404
+        
+        # 验证验证码
+        if user.verification_code != verification_code:
+            return jsonify({"success": False, "error": "验证码错误"}), 400
+        
+        # 验证验证码是否过期
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if current_time > user.code_expire:
+            return jsonify({"success": False, "error": "验证码已过期，请重新获取"}), 400
+        
+        # 更新密码（加密存储）
+        user.password = generate_password_hash(new_password, method='pbkdf2:sha256')
+        # 清空验证码（防止重复使用）
+        user.verification_code = ''
+        user.code_expire = ''
+        db.session.commit()
+        
+        return jsonify({"success": True, "message": "密码重置成功"}), 200
+    
+    except Exception as e:
+        return jsonify({"success": False, "error": f"重置失败：{str(e)}"}), 500
+
+# ---------------------------- 页面路由（忘记密码页面） ----------------------------
+@app.route('/forgot-password')
+def forgot_password_page():
+    # 已登录则跳首页
+    if is_logged_in():
+        return redirect(url_for('home'))
+    return render_template('forgot_password.html')
+
 
 # ---------------------------- 运行应用 ----------------------------
 
