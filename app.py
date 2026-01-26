@@ -15,6 +15,7 @@ from flask_migrate import Migrate
 from functools import wraps
 # 新增邮件相关导入
 from flask_mail import Mail, Message as FlaskMailMessage
+from email.header import Header
 
 # 加载环境变量
 load_dotenv()
@@ -26,12 +27,65 @@ app.secret_key = 'campus_social_2025'  # 用于session加密
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600 * 24 * 7  # Session有效期7天
 
 # 新增：邮件配置（从.env文件读取，或直接硬编码测试）
-app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.163.com')  # 示例：163邮箱SMTP服务器
-app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 465))  # SSL端口
-app.config['MAIL_USE_SSL'] = True
-app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', '你的邮箱@163.com')  # 发送验证码的邮箱
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '你的邮箱授权码')  # 邮箱授权码（不是登录密码）
-app.config['MAIL_DEFAULT_SENDER'] = ('校园活动平台', app.config['MAIL_USERNAME'])
+# 根据邮箱类型自动选择SMTP服务器
+def get_smtp_config(email_username):
+    """根据邮箱地址自动选择SMTP配置"""
+    email_username = email_username.lower()
+    if 'qq.com' in email_username:
+        return {
+            'server': 'smtp.qq.com',
+            'port': 465,
+            'use_tls': False,
+            'use_ssl': True
+        }
+    elif '163.com' in email_username or '126.com' in email_username:
+        return {
+            'server': 'smtp.163.com',
+            'port': 465,
+            'use_tls': False,
+            'use_ssl': True
+        }
+    elif 'gmail.com' in email_username:
+        return {
+            'server': 'smtp.gmail.com',
+            'port': 587,
+            'use_tls': True,
+            'use_ssl': False
+        }
+    else:
+        # 默认使用QQ邮箱配置
+        return {
+            'server': 'smtp.qq.com',
+            'port': 465,
+            'use_tls': False,
+            'use_ssl': True
+        }
+
+# 从环境变量读取邮件配置，如果没有则使用默认值
+mail_username = os.getenv('MAIL_USERNAME', '')
+mail_password = os.getenv('MAIL_PASSWORD', '')
+
+# 如果环境变量中有配置，使用环境变量的配置；否则使用默认的QQ邮箱配置
+if mail_username and mail_password:
+    smtp_config = get_smtp_config(mail_username)
+    app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', smtp_config['server'])
+    app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', smtp_config['port']))
+    app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', str(smtp_config['use_tls'])).lower() == 'true'
+    app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', str(smtp_config['use_ssl'])).lower() == 'true'
+    app.config['MAIL_USERNAME'] = mail_username
+    app.config['MAIL_PASSWORD'] = mail_password
+else:
+    # 默认配置（需要用户自己配置）
+    app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.qq.com')
+    app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 465))
+    app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'false').lower() == 'true'
+    app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'true').lower() == 'true'
+    app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME', '')
+    app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD', '')
+
+# 邮件超时设置（秒）
+app.config['MAIL_TIMEOUT'] = int(os.getenv('MAIL_TIMEOUT', 10))
+app.config['MAIL_DEFAULT_SENDER'] = ('校园活动平台', app.config['MAIL_USERNAME'] if app.config['MAIL_USERNAME'] else 'noreply@example.com')
 
 
 # MySQL数据库配置
@@ -855,8 +909,15 @@ def get_avatar_info():
 @app.route('/api/activities', methods=['GET'])
 def get_activities():
     activities = Activity.query.order_by(Activity.id.desc()).all()
+    current_user = find_user_by_id(session.get("user_id")) if session.get("user_id") else None
     result = []
     for act in activities:
+        is_favorited = False
+        if current_user:
+            try:
+                is_favorited = act in current_user.favorite_activities
+            except Exception:
+                is_favorited = False
         result.append({
             "id": act.id,
             "title": act.title,
@@ -868,6 +929,7 @@ def get_activities():
             "initiator_id": act.initiator_id,
             "participants": [{"id": p.id, "name": p.username} for p in act.participants],
             "participant_count": len(act.participants),
+            "is_favorited": is_favorited,
             "created_at": act.created_at
         })
     return jsonify({"success": True, "data": result, "count": len(result)}), 200
@@ -916,7 +978,9 @@ def create_activity():
         location=data["location"],
         tags=data.get("tags", ""),
         description=data.get("description", ""),
-        initiator_id=session["user_id"]
+        initiator_id=session["user_id"],
+        status=data.get("status", "upcoming") or "upcoming",
+        participant_count=0
     )
     
     db.session.add(new_activity)
@@ -967,6 +1031,8 @@ def join_activity(activity_id: int):
         return jsonify({"success": False, "error": "您已报名该活动"}), 400
     
     activity.participants.append(user)
+    # 同步参与人数，供“热门活动”排序使用
+    activity.participant_count = len(activity.participants)
     db.session.commit()
     
     return jsonify({
@@ -991,6 +1057,8 @@ def leave_activity(activity_id: int):
         return jsonify({"success": False, "error": "您未报名该活动"}), 400
     
     activity.participants.remove(user)
+    # 同步参与人数，供“热门活动”排序使用
+    activity.participant_count = len(activity.participants)
     db.session.commit()
     
     return jsonify({
@@ -1658,16 +1726,20 @@ def get_joined_activities():
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
     
-    # 格式化活动数据
+    # 格式化活动数据（仅返回人数统计，避免返回参与者明细导致慢）
     joined_activities = []
     for activity in user.joined_activities:
+        participant_count = activity.participant_count
+        if participant_count is None:
+            # 兼容旧数据：没有 participant_count 时再回退计算
+            participant_count = len(activity.participants)
         joined_activities.append({
             "id": activity.id,
             "title": activity.title,
             "type": activity.type,
             "time": activity.time,
             "location": activity.location,
-            "participants": [{"id": p.id, "name": p.username} for p in activity.participants],
+            "participant_count": participant_count,
             "created_at": activity.created_at
         })
     
@@ -1682,16 +1754,19 @@ def get_user_favorites_api():
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
     
-    # 格式化收藏活动数据
+    # 格式化收藏活动数据（仅返回人数统计，避免返回参与者明细导致慢）
     favorite_activities = []
     for activity in user.favorite_activities:
+        participant_count = activity.participant_count
+        if participant_count is None:
+            participant_count = len(activity.participants)
         favorite_activities.append({
             "id": activity.id,
             "title": activity.title,
             "type": activity.type,
             "time": activity.time,
             "location": activity.location,
-            "participants": [{"id": p.id, "name": p.username} for p in activity.participants],
+            "participant_count": participant_count,
             "created_at": activity.created_at
         })
     
@@ -2243,18 +2318,23 @@ def personal_home():
     if not current_user:
         return redirect(url_for('login_page'))
     
-    # 模块1：获取用户待参与活动（未开始=upcoming、按活动时间升序排序）
-    upcoming_activities = Activity.query.filter(
-        Activity.status == "upcoming",  # 适配你项目的status字段值
-    ).order_by(Activity.time.asc()).limit(5).all()  # 取前5条，按时间升序
+    # 模块1：获取用户待参与活动（用户已报名 + 未开始）
+    upcoming_activities = [
+        a for a in (current_user.joined_activities or [])
+        if (a.status or "upcoming") == "upcoming"
+    ]
+    upcoming_activities.sort(key=lambda a: a.time or "")
+    upcoming_activities = upcoming_activities[:5]
     
-    # 模块2：获取校园热门活动（按参与人数降序排序，适配participant_count字段）
+    # 模块2：获取校园热门活动（未开始；按参与人数降序；兼容 status 为空）
     hot_activities = Activity.query.filter(
-        Activity.status == "upcoming"
-    ).order_by(Activity.participant_count.desc()).limit(6).all()  # 适配新增的participant_count字段
+        db.or_(Activity.status == "upcoming", Activity.status == None)  # noqa: E711
+    ).order_by(Activity.participant_count.desc(), Activity.id.desc()).limit(6).all()
     
     # 模块3：获取最新校园帖子（按创建时间降序排序，保持原有逻辑）
     latest_posts = Post.query.order_by(Post.created_at.desc()).limit(4).all()  # 若你Post表创建时间字段是其他名称，可留言调整
+
+    favorite_ids = set([a.id for a in (current_user.favorite_activities or [])])
     
     # 传递数据到前端页面
     return render_template(
@@ -2262,7 +2342,8 @@ def personal_home():
         current_user=current_user,
         upcoming_activities=upcoming_activities,
         hot_activities=hot_activities,
-        latest_posts=latest_posts
+        latest_posts=latest_posts,
+        favorite_ids=favorite_ids
     )
 
 # ---------------------------- 忘记密码相关API ----------------------------
@@ -2292,6 +2373,13 @@ def send_verification():
         if not user:
             return jsonify({"success": False, "error": "该邮箱未注册"}), 404
         
+        # 检查邮件配置是否完整
+        if not app.config.get('MAIL_USERNAME') or not app.config.get('MAIL_PASSWORD'):
+            return jsonify({
+                "success": False, 
+                "error": "邮件服务未配置。请在环境变量中设置 MAIL_USERNAME 和 MAIL_PASSWORD，或联系管理员配置邮件服务。"
+            }), 500
+        
         # 生成验证码和过期时间（15分钟）
         verification_code = generate_verification_code()
         expire_time = (datetime.now() + timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
@@ -2302,16 +2390,44 @@ def send_verification():
         db.session.commit()
         
         # 发送邮件
-        msg = FlaskMailMessage(
-            subject="【校园活动平台】密码重置验证码",
-            recipients=[email],
-            body=f"""
-            您好！您正在申请重置密码，您的验证码为：{verification_code}
-            验证码有效期为15分钟，请尽快完成重置。
-            若不是您本人操作，请忽略此邮件。
-            """
-        )
-        mail.send(msg)
+        try:
+            msg = FlaskMailMessage(
+                subject=Header("【校园活动平台】密码重置验证码", 'utf-8').encode(),
+                recipients=[email],
+                body=f"""
+                您好！您正在申请重置密码，您的验证码为：{verification_code}
+                验证码有效期为15分钟，请尽快完成重置。
+                若不是您本人操作，请忽略此邮件。
+                """,
+                charset='utf-8'
+            )
+            mail.send(msg)
+        except Exception as mail_error:
+            # 回滚数据库更改
+            db.session.rollback()
+            error_msg = str(mail_error)
+            
+            # 根据错误类型提供更友好的错误信息
+            if '10060' in error_msg or 'timeout' in error_msg.lower() or 'timed out' in error_msg.lower():
+                return jsonify({
+                    "success": False, 
+                    "error": "连接邮件服务器超时。请检查：\n1. 网络连接是否正常\n2. SMTP服务器地址和端口是否正确\n3. 防火墙是否阻止了连接\n4. 邮件服务配置是否正确"
+                }), 500
+            elif '535' in error_msg or 'authentication' in error_msg.lower() or 'login' in error_msg.lower():
+                return jsonify({
+                    "success": False, 
+                    "error": "邮件认证失败。请检查：\n1. 邮箱账号是否正确\n2. 是否使用了授权码（不是登录密码）\n3. 是否已开启SMTP服务"
+                }), 500
+            elif 'connection' in error_msg.lower() or 'refused' in error_msg.lower():
+                return jsonify({
+                    "success": False, 
+                    "error": "无法连接到邮件服务器。请检查：\n1. SMTP服务器地址是否正确\n2. 端口号是否正确\n3. 是否使用了正确的加密方式（SSL/TLS）"
+                }), 500
+            else:
+                return jsonify({
+                    "success": False, 
+                    "error": f"发送邮件失败：{error_msg}\n请检查邮件服务配置是否正确。"
+                }), 500
         
         return jsonify({"success": True, "message": "验证码已发送至您的邮箱"}), 200
     

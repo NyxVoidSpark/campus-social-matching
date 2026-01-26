@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', function() {
     checkLoginStatus();
     setupEventListeners();
     initPostsUI();
+    initActivityForm();
 });
 
 // 全局变量
@@ -83,6 +84,8 @@ function displayActivities(activities) {
 
     // 循环渲染活动卡片
     activities.forEach(activity => {
+        const isFavorited = !!activity.is_favorited;
+        const starClass = isFavorited ? 'fa-solid fa-star text-warning' : 'fa-regular fa-star text-warning';
         const card = `
             <div class="col-md-4">
                 <div class="card h-100">
@@ -99,8 +102,8 @@ function displayActivities(activities) {
                             <button class="btn btn-primary flex-1" onclick="joinActivity(${activity.id})">
                                 我要参加
                             </button>
-                            <button class="btn btn-outline-warning flex-1" onclick="favoriteActivity(${activity.id})">
-                                <<i class="fas fa-star"></</i>
+                            <button class="btn btn-outline-warning flex-1" onclick="favoriteActivity(${activity.id})" aria-label="收藏活动">
+                                <i class="${starClass}"></i>
                             </button>
                         </div>
                     </div>
@@ -165,7 +168,7 @@ function searchActivities() {
                     container.innerHTML = `
                         <div class="col-12">
                             <div class="alert alert-info">
-                                <<i class="fas fa-search"></</i> 没有找到"${keyword}"相关的活动
+                                <i class="fas fa-search"></i> 没有找到"${keyword}"相关的活动
                                 <button class="btn btn-sm btn-outline-primary ms-3" onclick="loadActivities()">
                                     显示所有活动
                                 </button>
@@ -177,7 +180,7 @@ function searchActivities() {
                         <div class="col-12 mb-3">
                             <div class="alert alert-success d-flex justify-content-between align-items-center">
                                 <span>
-                                    <<i class="fas fa-check-circle"></</i> 找到 ${data.count} 个与"${keyword}"相关的活动
+                                    <i class="fas fa-check-circle"></i> 找到 ${data.count} 个与"${keyword}"相关的活动
                                 </span>
                                 <button class="btn btn-sm btn-outline-secondary" onclick="clearSearch()">
                                     清除搜索
@@ -191,7 +194,7 @@ function searchActivities() {
                 container.innerHTML = `
                     <div class="col-12">
                         <div class="alert alert-danger">
-                            <<i class="fas fa-exclamation-circle"></</i> 搜索失败：${data.error || '未知错误'}
+                            <i class="fas fa-exclamation-circle"></i> 搜索失败：${data.error || '未知错误'}
                         </div>
                     </div>
                 `;
@@ -202,7 +205,7 @@ function searchActivities() {
             container.innerHTML = `
                 <div class="col-12">
                     <div class="alert alert-danger">
-                        <<i class="fas fa-exclamation-circle"></</i> 搜索失败，请刷新页面重试
+                        <i class="fas fa-exclamation-circle"></i> 搜索失败，请刷新页面重试
                         <button class="btn btn-sm btn-outline-primary ms-3" onclick="loadActivities()">
                             返回活动列表
                         </button>
@@ -243,16 +246,64 @@ function joinActivity(activityId) {
 function favoriteActivity(activityId) {
     fetch(`/api/activities/${activityId}/favorite`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'}
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include'
     })
     .then(response => response.json())
     .then(data => {
-        alert(data.message);
-        loadActivities();
+        if (data.success) {
+            loadActivities(); // 刷新列表以同步星星点亮状态
+        } else {
+            alert(data.error || '操作失败，请重试');
+        }
     })
     .catch(error => {
         console.error('收藏请求失败:', error);
         alert('操作失败，请重试');
+    });
+}
+
+// 发布活动表单（首页用）
+function initActivityForm() {
+    const form = document.getElementById('activityForm');
+    const msg = document.getElementById('activityFormMsg');
+    if (!form) return;
+
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        if (msg) msg.innerHTML = '<div class="alert alert-info">正在发布活动...</div>';
+
+        const payload = {
+            title: document.getElementById('activityTitle')?.value || '',
+            type: document.getElementById('activityType')?.value || '',
+            time: document.getElementById('activityTime')?.value || '',
+            location: document.getElementById('activityLocation')?.value || '',
+            tags: document.getElementById('activityTags')?.value || '',
+            description: document.getElementById('activityDesc')?.value || ''
+        };
+
+        fetch('/api/activities', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            credentials: 'include'
+        })
+        .then(r => r.json().then(j => ({ ok: r.ok, body: j })))
+        .then(res => {
+            if (res.body?.success) {
+                if (msg) msg.innerHTML = '<div class="alert alert-success">活动发布成功！</div>';
+                form.reset();
+                loadActivities();
+                // 发布后立刻在“我的首页”看到热门活动
+                setTimeout(() => { window.location.href = '/personal_home'; }, 600);
+            } else {
+                if (msg) msg.innerHTML = `<div class="alert alert-danger">发布失败：${res.body?.error || '未知错误'}</div>`;
+            }
+        })
+        .catch(err => {
+            console.error('发布活动失败:', err);
+            if (msg) msg.innerHTML = '<div class="alert alert-danger">发布失败，请重试</div>';
+        });
     });
 }
 
@@ -297,14 +348,14 @@ function setupEventListeners() {
                 if (result.success) {
                     messageDiv.innerHTML = `
                         <div class="alert alert-success">
-                            <<i class="fas fa-check-circle"></</i> ${result.message}
+                            <i class="fas fa-check-circle"></i> ${result.message}
                         </div>
                     `;
                     loadDetailedProfile();
                 } else {
                     messageDiv.innerHTML = `
                         <div class="alert alert-danger">
-                            <<i class="fas fa-exclamation-circle"></</i> ${result.error}
+                            <i class="fas fa-exclamation-circle"></i> ${result.error}
                         </div>
                     `;
                 }
@@ -319,7 +370,7 @@ function setupEventListeners() {
                 if (messageDiv) {
                     messageDiv.innerHTML = `
                         <div class="alert alert-danger">
-                            <<i class="fas fa-exclamation-circle"></</i> 更新失败，请重试
+                            <i class="fas fa-exclamation-circle"></i> 更新失败，请重试
                         </div>
                     `;
                 }
@@ -346,14 +397,14 @@ function setupEventListeners() {
                 if (result.success) {
                     messageDiv.innerHTML = `
                         <div class="alert alert-success">
-                            <<i class="fas fa-check-circle"></</i> ${result.message}
+                            <i class="fas fa-check-circle"></i> ${result.message}
                         </div>
                     `;
                     loadUserProfile();
                 } else {
                     messageDiv.innerHTML = `
                         <div class="alert alert-danger">
-                            <<i class="fas fa-exclamation-circle"></</i> ${result.error}
+                            <i class="fas fa-exclamation-circle"></i> ${result.error}
                         </div>
                     `;
                 }
@@ -368,7 +419,7 @@ function setupEventListeners() {
                 if (messageDiv) {
                     messageDiv.innerHTML = `
                         <div class="alert alert-danger">
-                            <<i class="fas fa-exclamation-circle"></</i> 更新失败，请重试
+                            <i class="fas fa-exclamation-circle"></i> 更新失败，请重试
                         </div>
                     `;
                 }

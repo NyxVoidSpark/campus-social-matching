@@ -949,7 +949,7 @@
                 });
         }
         // 显示已参与活动
-        function displayJoinedActivities(activities) {
+            function displayJoinedActivities(activities) {
             const container = document.getElementById('joinedActivitiesList');
             if (!container) return;
             container.innerHTML = '';
@@ -966,6 +966,9 @@
                 return;
             }
             activities.forEach(activity => {
+                var participantCount = (typeof activity.participant_count === 'number')
+                    ? activity.participant_count
+                    : (activity.participants ? activity.participants.length : 0);
                 const card = `
                     <div class="col-md-6 mb-3">
                         <div class="card activity-card">
@@ -980,7 +983,7 @@
                                 </p>
                                 <div class="d-flex justify-content-between align-items-center">
                                     <small class="text-muted">
-                                        <i class="fas fa-users"></i> ${activity.participants.length}人参与
+                                        <i class="fas fa-users"></i> ${participantCount}人参与
                                     </small>
                                     <button class="btn btn-outline-danger btn-sm" onclick="leaveActivity(${activity.id})">
                                         <i class="fas fa-times"></i> 取消报名
@@ -994,7 +997,7 @@
             });
         }
         // 显示收藏活动
-        function displayFavorites(activities) {
+            function displayFavorites(activities) {
             const container = document.getElementById('favoritesList');
             if (!container) return;
             if (activities.length === 0) {
@@ -1011,6 +1014,9 @@
             }
             container.innerHTML = '';
             activities.forEach(activity => {
+                var participantCount = (typeof activity.participant_count === 'number')
+                    ? activity.participant_count
+                    : (activity.participants ? activity.participants.length : 0);
                 const card = `
                     <div class="col-md-6 mb-3">
                         <div class="card activity-card">
@@ -1025,7 +1031,7 @@
                                 </p>
                                 <div class="d-flex justify-content-between align-items-center">
                                     <small class="text-muted">
-                                        <i class="fas fa-users"></i> ${activity.participants.length}人参与
+                                        <i class="fas fa-users"></i> ${participantCount}人参与
                                     </small>
                                     <button class="btn btn-outline-warning btn-sm" onclick="unfavoriteActivity(${activity.id})">
                                         <i class="fas fa-star"></i> 取消收藏
@@ -1094,7 +1100,7 @@
         // 取消报名
         function leaveActivity(activityId) {
             if (!confirm('确定要取消报名吗？')) return;
-            fetch(`/api/activities/${activityId}/leave`, { method: 'POST' },{credentials: 'include'})
+            fetch(`/api/activities/${activityId}/leave`, { method: 'POST', credentials: 'include' })
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
@@ -1113,7 +1119,7 @@
         // 取消收藏
         function unfavoriteActivity(activityId) {
             if (!confirm('确定要取消收藏吗？')) return;
-            fetch(`/api/activities/${activityId}/favorite`, { method: 'POST' },{credentials: 'include'})
+            fetch(`/api/activities/${activityId}/favorite`, { method: 'POST', credentials: 'include' })
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
