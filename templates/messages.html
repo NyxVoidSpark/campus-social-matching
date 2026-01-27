@@ -1,52 +1,441 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>消息中心 - 校园社交匹配</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <style>
-        body {
-            background-color: #f5f5f5;
-            height: 100vh;
-            overflow: hidden;
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="/static/css/output.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/daisyui@4.4.20/dist/full.js"></script>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body class="h-screen bg-base-200 flex flex-col">
+    <!-- 导航栏 -->
+    <nav class="navbar bg-base-100 shadow-sm border-b border-base-300">
+        <div class="navbar-start">
+            <a href="/" class="btn btn-ghost btn-circle">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                </svg>
+            </a>
+            <h1 class="text-xl font-bold ml-4">消息中心</h1>
+        </div>
+        <div class="navbar-end">
+            <div class="indicator">
+                <button class="btn btn-ghost btn-circle" id="notificationBtn">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-5 5v-5zM21 21V11a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2z"></path>
+                    </svg>
+                </button>
+                <span class="badge badge-xs indicator-item badge-primary hidden" id="unreadBadge">0</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 消息内容区域 -->
+    <div class="flex-1 flex overflow-hidden">
+        <!-- 会话列表 -->
+        <div class="w-80 bg-base-100 border-r border-base-300 flex flex-col">
+            <!-- 搜索框 -->
+            <div class="p-4 border-b border-base-300">
+                <div class="form-control">
+                    <div class="input-group">
+                        <input type="text"
+                               id="searchInput"
+                               placeholder="搜索对话..."
+                               class="input input-bordered input-sm flex-1 focus:input-primary">
+                        <button class="btn btn-square btn-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 会话列表 -->
+            <div class="flex-1 overflow-y-auto" id="conversationsList">
+                <!-- 会话项将在这里动态加载 -->
+            </div>
+        </div>
+
+        <!-- 聊天区域 -->
+        <div class="flex-1 flex flex-col bg-base-100">
+            <!-- 聊天头部 -->
+            <div class="p-4 border-b border-base-300 bg-base-100" id="chatHeader">
+                <div class="flex items-center space-x-3">
+                    <div class="avatar">
+                        <div class="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-lg" id="chatUserName">选择一个对话开始聊天</h3>
+                        <p class="text-sm text-base-content/70" id="chatUserStatus">在线</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 消息区域 -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-4" id="messagesArea">
+                <div class="text-center text-base-content/50 py-8">
+                    <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                    </svg>
+                    <p>选择左侧的对话开始聊天</p>
+                </div>
+            </div>
+
+            <!-- 输入区域 -->
+            <div class="p-4 border-t border-base-300 bg-base-100" id="messageInput" style="display: none;">
+                <div class="flex space-x-2">
+                    <input type="text"
+                           id="messageText"
+                           placeholder="输入消息..."
+                           class="input input-bordered flex-1 focus:input-primary"
+                           onkeypress="if(event.key === 'Enter') sendMessage()">
+                    <button class="btn btn-primary" onclick="sendMessage()" id="sendBtn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket;
+        let currentUserId = null;
+        let currentChatUserId = null;
+        let unreadCount = 0;
+
+        // 页面加载初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSocket();
+            loadConversations();
+            setupEventListeners();
+        });
+
+        // 初始化Socket.IO
+        function initializeSocket() {
+            socket = io();
+
+            socket.on('connect', function() {
+                console.log('Connected to server');
+            });
+
+            socket.on('receive_message', function(data) {
+                handleNewMessage(data);
+            });
+
+            socket.on('notification', function(data) {
+                handleNotification(data);
+            });
+
+            socket.on('disconnect', function() {
+                console.log('Disconnected from server');
+            });
         }
-        .messages-container {
-            max-width: 1400px;
-            margin: 0 auto;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
+
+        // 设置事件监听器
+        function setupEventListeners() {
+            // 搜索功能
+            document.getElementById('searchInput').addEventListener('input', function() {
+                filterConversations(this.value);
+            });
+
+            // 消息输入框回车发送
+            document.getElementById('messageText').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
         }
-        .messages-header {
-            background: white;
-            padding: 15px 20px;
-            border-bottom: 1px solid #dee2e6;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+
+        // 加载对话列表
+        function loadConversations() {
+            fetch('/api/messages/conversations')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        renderConversations(data.data);
+                        updateUnreadBadge();
+                    }
+                })
+                .catch(error => console.error('加载对话失败:', error));
         }
-        .messages-content {
-            flex: 1;
-            display: flex;
-            overflow: hidden;
+
+        // 渲染对话列表
+        function renderConversations(conversations) {
+            const container = document.getElementById('conversationsList');
+
+            if (conversations.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-base-content/50">
+                        <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                        </svg>
+                        <p>暂无对话</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = conversations.map(conv => `
+                <div class="conversation-item p-4 border-b border-base-200 hover:bg-base-200 cursor-pointer transition-colors ${conv.user_id === currentChatUserId ? 'bg-primary/10 border-l-4 border-l-primary' : ''}"
+                     onclick="selectConversation(${conv.user_id}, '${conv.username}', '${conv.avatar || ''}')">
+                    <div class="flex items-center space-x-3">
+                        <div class="avatar">
+                            <div class="w-12 h-12 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center">
+                                ${conv.avatar ?
+                                    `<img src="${conv.avatar}" alt="${conv.username}" class="w-12 h-12 rounded-full object-cover">` :
+                                    `<span class="text-white font-semibold text-lg">${conv.username.charAt(0).toUpperCase()}</span>`
+                                }
+                            </div>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex justify-between items-start">
+                                <h4 class="font-semibold text-sm truncate">${conv.username}</h4>
+                                <span class="text-xs text-base-content/50">${formatTime(conv.last_message_time)}</span>
+                            </div>
+                            <p class="text-sm text-base-content/70 truncate mt-1">${conv.last_message || '暂无消息'}</p>
+                        </div>
+                        ${conv.unread_count > 0 ? `
+                            <div class="badge badge-primary badge-sm">${conv.unread_count}</div>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
         }
-        .conversations-list {
-            width: 350px;
-            background: white;
-            border-right: 1px solid #dee2e6;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
+
+        // 选择对话
+        function selectConversation(userId, username, avatar) {
+            currentChatUserId = userId;
+
+            // 更新UI
+            document.getElementById('chatUserName').textContent = username;
+            document.getElementById('chatUserStatus').textContent = '在线';
+            document.getElementById('messageInput').style.display = 'block';
+
+            // 加载消息历史
+            loadMessages(userId);
+
+            // 标记为已读
+            markAsRead(userId);
+
+            // 更新选中状态
+            document.querySelectorAll('.conversation-item').forEach(item => {
+                item.classList.remove('bg-primary/10', 'border-l-4', 'border-l-primary');
+            });
+            event.currentTarget.classList.add('bg-primary/10', 'border-l-4', 'border-l-primary');
         }
-        .conversations-header {
-            padding: 15px;
-            border-bottom: 1px solid #dee2e6;
-            background: #f8f9fa;
+
+        // 加载消息历史
+        function loadMessages(userId) {
+            fetch(`/api/messages/history/${userId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        renderMessages(data.data);
+                    }
+                })
+                .catch(error => console.error('加载消息失败:', error));
         }
-        .conversation-item {
-            padding: 15px;
+
+        // 渲染消息
+        function renderMessages(messages) {
+            const container = document.getElementById('messagesArea');
+
+            if (messages.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-base-content/50 py-8">
+                        <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                        </svg>
+                        <p>开始你们的对话吧</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = messages.map(msg => `
+                <div class="message ${msg.sender_id === currentUserId ? 'flex justify-end' : 'flex justify-start'}">
+                    <div class="max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                        msg.sender_id === currentUserId
+                            ? 'bg-primary text-primary-content'
+                            : 'bg-base-200 text-base-content'
+                    }">
+                        <p class="text-sm">${msg.content}</p>
+                        <p class="text-xs opacity-70 mt-1">${formatTime(msg.created_at)}</p>
+                    </div>
+                </div>
+            `).join('');
+
+            // 滚动到底部
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // 发送消息
+        function sendMessage() {
+            const messageText = document.getElementById('messageText');
+            const content = messageText.value.trim();
+
+            if (!content || !currentChatUserId) return;
+
+            // 显示发送状态
+            const sendBtn = document.getElementById('sendBtn');
+            const originalHtml = sendBtn.innerHTML;
+            sendBtn.innerHTML = '<span class="loading loading-spinner loading-sm"></span>';
+            sendBtn.disabled = true;
+
+            fetch('/api/messages/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    receiver_id: currentChatUserId,
+                    content: content
+                }),
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    messageText.value = '';
+                    // 消息会通过Socket.IO自动显示
+                } else {
+                    alert('发送失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('发送消息失败:', error);
+                alert('发送失败，请重试');
+            })
+            .finally(() => {
+                sendBtn.innerHTML = originalHtml;
+                sendBtn.disabled = false;
+            });
+        }
+
+        // 处理新消息
+        function handleNewMessage(data) {
+            if (data.sender_id === currentChatUserId || data.receiver_id === currentChatUserId) {
+                // 如果是当前对话，重新加载消息
+                if (currentChatUserId) {
+                    loadMessages(currentChatUserId);
+                }
+            }
+
+            // 更新对话列表
+            loadConversations();
+        }
+
+        // 处理通知
+        function handleNotification(data) {
+            updateUnreadBadge();
+            showToast(data.title, 'info');
+        }
+
+        // 标记为已读
+        function markAsRead(userId) {
+            fetch('/api/messages/mark-read', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ other_user_id: userId }),
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateUnreadBadge();
+                    loadConversations();
+                }
+            })
+            .catch(error => console.error('标记已读失败:', error));
+        }
+
+        // 更新未读徽章
+        function updateUnreadBadge() {
+            fetch('/api/messages/unread-count')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const badge = document.getElementById('unreadBadge');
+                        const count = data.data.unread_count;
+
+                        if (count > 0) {
+                            badge.textContent = count > 99 ? '99+' : count;
+                            badge.classList.remove('hidden');
+                        } else {
+                            badge.classList.add('hidden');
+                        }
+                    }
+                })
+                .catch(error => console.error('获取未读数量失败:', error));
+        }
+
+        // 过滤对话
+        function filterConversations(query) {
+            const items = document.querySelectorAll('.conversation-item');
+            const lowerQuery = query.toLowerCase();
+
+            items.forEach(item => {
+                const username = item.querySelector('h4').textContent.toLowerCase();
+                const message = item.querySelector('p').textContent.toLowerCase();
+
+                if (username.includes(lowerQuery) || message.includes(lowerQuery)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+
+        // 工具函数
+        function formatTime(dateString) {
+            const date = new Date(dateString);
+            const now = new Date();
+            const diff = now - date;
+
+            if (diff < 60000) return '刚刚'; // 1分钟内
+            if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`; // 1小时内
+            if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`; // 1天内
+
+            return date.toLocaleDateString('zh-CN', {
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        function showToast(message, type = 'info') {
+            // 使用全局toast函数
+            if (window.utils && window.utils.showToast) {
+                window.utils.showToast(message, type);
+            }
+        }
+
+        // 获取当前用户信息
+        fetch('/api/current-user')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    currentUserId = data.data.id;
+                    // 加入用户的Socket房间
+                    if (socket) {
+                        socket.emit('join', { user_id: currentUserId });
+                    }
+                }
+            })
+            .catch(error => console.error('获取用户信息失败:', error));
+    </script>
+</body>
+</html>
             border-bottom: 1px solid #f0f0f0;
             cursor: pointer;
             transition: background-color 0.2s;

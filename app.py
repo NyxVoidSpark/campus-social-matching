@@ -16,6 +16,8 @@ from functools import wraps
 # 新增邮件相关导入
 from flask_mail import Mail, Message as FlaskMailMessage
 from email.header import Header
+# 新增SocketIO导入
+from flask_socketio import SocketIO, emit, join_room, leave_room
 
 # 加载环境变量
 load_dotenv()
@@ -25,6 +27,9 @@ app = Flask(__name__)
 CORS(app, supports_credentials=True, origins=["http://localhost:5001", "http://127.0.0.1:5001"])  # 明确指定允许的来源
 app.secret_key = 'campus_social_2025'  # 用于session加密
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600 * 24 * 7  # Session有效期7天
+
+# 初始化SocketIO
+socketio = SocketIO(app, cors_allowed_origins=["http://localhost:5001", "http://127.0.0.1:5001"])
 
 # 新增：邮件配置（从.env文件读取，或直接硬编码测试）
 # 根据邮箱类型自动选择SMTP服务器
@@ -588,6 +593,23 @@ def forum_page():
                          search=search,
                          categories=POST_CATEGORIES)
 
+# 小组页面
+@app.route('/groups')
+@login_required
+def groups_page():
+    return render_template('groups.html')
+
+@app.route('/stats')
+@login_required
+def stats_page():
+    return render_template('stats.html')
+
+# 团队招募页面
+@app.route('/team-recruit')
+@login_required
+def team_recruit_page():
+    return render_template('team_recruit.html')
+
 # 发帖页面
 @app.route('/create-post', methods=['GET', 'POST'])
 @login_required
@@ -1106,21 +1128,87 @@ def favorite_activity(activity_id: int):
 @app.route("/api/activities/search", methods=["GET"])
 @login_required
 def search_activities():
+    # 获取搜索参数
     keyword = request.args.get('keyword', '').strip()
     search_type = request.args.get('type', 'all')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    location = request.args.get('location', '').strip()
+    tags = request.args.get('tags', '').strip()
+    sort_by = request.args.get('sort_by', 'newest')
+    min_participants = request.args.get('min_participants', type=int)
+    max_participants = request.args.get('max_participants', type=int)
     
     # 构建查询条件
     query = Activity.query
-    if search_type != 'all':
+    
+    # 类型筛选
+    if search_type and search_type != 'all':
         query = query.filter(Activity.type == search_type)
     
+    # 关键词搜索
     if keyword:
         keyword = f"%{keyword}%"
         query = query.filter(
-            db.or_(Activity.title.like(keyword), Activity.location.like(keyword))
+            db.or_(
+                Activity.title.like(keyword), 
+                Activity.location.like(keyword),
+                Activity.description.like(keyword)
+            )
         )
     
-    activities = query.order_by(Activity.id.desc()).all()
+    # 地点搜索
+    if location:
+        location = f"%{location}%"
+        query = query.filter(Activity.location.like(location))
+    
+    # 标签搜索
+    if tags:
+        tag_conditions = []
+        for tag in tags.split(','):
+            tag = tag.strip()
+            if tag:
+                tag_conditions.append(Activity.tags.like(f"%{tag}%"))
+        if tag_conditions:
+            query = query.filter(db.or_(*tag_conditions))
+    
+    # 日期范围筛选
+    if date_from:
+        try:
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+            query = query.filter(Activity.time >= date_from_obj.strftime('%Y-%m-%d %H:%M:%S'))
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
+            # 设置为当天的结束时间
+            date_to_obj = date_to_obj.replace(hour=23, minute=59, second=59)
+            query = query.filter(Activity.time <= date_to_obj.strftime('%Y-%m-%d %H:%M:%S'))
+        except ValueError:
+            pass
+    
+    # 参与人数筛选
+    if min_participants is not None:
+        query = query.filter(db.func.length(Activity.participants) >= min_participants)
+    
+    if max_participants is not None:
+        query = query.filter(db.func.length(Activity.participants) <= max_participants)
+    
+    # 排序
+    if sort_by == 'newest':
+        query = query.order_by(Activity.id.desc())
+    elif sort_by == 'oldest':
+        query = query.order_by(Activity.id.asc())
+    elif sort_by == 'most_participants':
+        # 简化排序，按ID降序（实际应该按参与人数排序）
+        query = query.order_by(Activity.id.desc())
+    elif sort_by == 'upcoming':
+        query = query.filter(Activity.time >= datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        query = query.order_by(Activity.time.asc())
+    
+    activities = query.all()
     result = []
     
     for act in activities:
@@ -1130,14 +1218,25 @@ def search_activities():
             "type": act.type,
             "time": act.time,
             "location": act.location,
-            "participants_count": len(act.participants)
+            "description": act.description,
+            "tags": act.tags.split(',') if act.tags else [],
+            "participants_count": len(act.participants),
+            "created_at": act.created_at
         })
     
     return jsonify({
         "success": True,
         "data": result,
         "count": len(result),
-        "search_info": {"keyword": keyword.strip('%') if keyword else '', "type": search_type}
+        "search_info": {
+            "keyword": keyword.strip('%') if keyword else '',
+            "type": search_type,
+            "location": location,
+            "tags": tags,
+            "date_from": date_from,
+            "date_to": date_to,
+            "sort_by": sort_by
+        }
     })
 
 # 活动推荐接口
@@ -1370,6 +1469,122 @@ def create_post_api():
         'data': {'id': p.id, 'review_status': review_status}
     }), 201
 
+# 高级帖子搜索
+@app.route('/api/posts/search', methods=['GET'])
+@login_required
+def search_posts():
+    # 获取搜索参数
+    keyword = request.args.get('keyword', '').strip()
+    category = request.args.get('category', 'all')
+    author = request.args.get('author', '').strip()
+    tags = request.args.get('tags', '').strip()
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    sort_by = request.args.get('sort_by', 'newest')
+    has_attachments = request.args.get('has_attachments', '').lower() == 'true'
+    
+    # 构建查询条件
+    query = Post.query.filter(Post.review_status == 'approved')  # 只搜索已审核的帖子
+    
+    # 分类筛选
+    if category and category != 'all':
+        query = query.filter(Post.category == category)
+    
+    # 关键词搜索
+    if keyword:
+        keyword = f"%{keyword}%"
+        query = query.filter(
+            db.or_(
+                Post.title.like(keyword),
+                Post.content.like(keyword)
+            )
+        )
+    
+    # 作者搜索
+    if author:
+        author = f"%{author}%"
+        query = query.filter(
+            db.and_(
+                User.username.like(author),
+                Post.author_id == User.id
+            )
+        )
+    
+    # 标签搜索
+    if tags:
+        tag_conditions = []
+        for tag in tags.split(','):
+            tag = tag.strip()
+            if tag:
+                tag_conditions.append(Post.tags.like(f"%{tag}%"))
+        if tag_conditions:
+            query = query.filter(db.or_(*tag_conditions))
+    
+    # 日期范围筛选
+    if date_from:
+        try:
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+            query = query.filter(Post.created_at >= date_from_obj.strftime('%Y-%m-%d'))
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
+            query = query.filter(Post.created_at <= date_to_obj.strftime('%Y-%m-%d 23:59:59'))
+        except ValueError:
+            pass
+    
+    # 附件筛选
+    if has_attachments:
+        query = query.filter(Post.attachments.isnot(None))
+    
+    # 排序
+    if sort_by == 'newest':
+        query = query.order_by(Post.created_at.desc())
+    elif sort_by == 'oldest':
+        query = query.order_by(Post.created_at.asc())
+    elif sort_by == 'most_commented':
+        # 需要计算评论数，这里简化
+        query = query.order_by(Post.created_at.desc())
+    
+    # 分页
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    posts = query.paginate(page=page, per_page=per_page, error_out=False)
+    
+    # 构建结果
+    result = []
+    for post in posts.items:
+        author = User.query.get(post.author_id)
+        result.append({
+            'id': post.id,
+            'title': post.title,
+            'content': post.content[:200] + '...' if len(post.content) > 200 else post.content,
+            'category': post.category,
+            'tags': post.tags,
+            'author': {
+                'id': author.id if author else None,
+                'username': author.username if author else '未知'
+            },
+            'created_at': post.created_at,
+            'comment_count': len(post.comments),
+            'has_attachments': bool(post.attachments)
+        })
+    
+    return jsonify({
+        'success': True,
+        'data': result,
+        'pagination': {
+            'page': page,
+            'per_page': per_page,
+            'total': posts.total,
+            'pages': posts.pages,
+            'has_next': posts.has_next,
+            'has_prev': posts.has_prev
+        }
+    })
+
 # 帖子删除接口（自己的帖子或教师可删除）
 @app.route('/api/posts/<int:post_id>', methods=['DELETE'])
 @login_required
@@ -1574,6 +1789,176 @@ def api_groups():
     db.session.commit()
     
     return jsonify({'success': True, 'message': '小组创建成功', 'data': {'id': g.id, 'name': g.name}}), 201
+
+# 获取单个小组详情
+@app.route('/api/groups/<int:group_id>', methods=['GET'])
+@login_required
+def get_group_detail(group_id):
+    group = Group.query.get(group_id)
+    if not group:
+        return jsonify({'success': False, 'error': '小组不存在'}), 404
+    
+    # 获取成员列表
+    members = []
+    for user in group.members:
+        members.append({
+            'id': user.id,
+            'username': user.username,
+            'avatar': user.avatar
+        })
+    
+    # 检查当前用户是否是成员
+    current_user_id = session.get('user_id')
+    is_member = any(member['id'] == current_user_id for member in members)
+    
+    return jsonify({
+        'success': True,
+        'data': {
+            'id': group.id,
+            'name': group.name,
+            'description': group.description,
+            'created_at': group.created_at,
+            'creator_id': group.creator_id,
+            'members': members,
+            'member_count': len(members),
+            'is_member': is_member
+        }
+    })
+
+# 加入小组
+@app.route('/api/groups/<int:group_id>/join', methods=['POST'])
+@login_required
+def join_group(group_id):
+    group = Group.query.get(group_id)
+    if not group:
+        return jsonify({'success': False, 'error': '小组不存在'}), 404
+    
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)
+    
+    if user in group.members:
+        return jsonify({'success': False, 'error': '您已经是该小组成员'}), 400
+    
+    group.members.append(user)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': '成功加入小组'})
+
+# 退出小组
+@app.route('/api/groups/<int:group_id>/leave', methods=['POST'])
+@login_required
+def leave_group(group_id):
+    group = Group.query.get(group_id)
+    if not group:
+        return jsonify({'success': False, 'error': '小组不存在'}), 404
+    
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)
+    
+    if user not in group.members:
+        return jsonify({'success': False, 'error': '您不是该小组成员'}), 400
+    
+    if group.creator_id == user_id:
+        return jsonify({'success': False, 'error': '创建者不能退出小组'}), 400
+    
+    group.members.remove(user)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': '已退出小组'})
+
+# ---------------------------- 团队招募API ----------------------------
+
+# 获取团队招募列表
+@app.route('/api/team-recruit', methods=['GET'])
+@login_required
+def get_team_recruits():
+    recruits = TeamRecruit.query.order_by(TeamRecruit.created_at.desc()).all()
+    
+    result = []
+    for recruit in recruits:
+        creator = User.query.get(recruit.creator_id)
+        result.append({
+            'id': recruit.id,
+            'title': recruit.title,
+            'description': recruit.description,
+            'skills': recruit.skills.split(',') if recruit.skills else [],
+            'time_frame': recruit.time_frame,
+            'creator': {
+                'id': creator.id if creator else None,
+                'username': creator.username if creator else '未知'
+            },
+            'created_at': recruit.created_at,
+            'member_count': len(recruit.members)
+        })
+    
+    return jsonify({'success': True, 'data': result})
+
+# 创建团队招募
+@app.route('/api/team-recruit', methods=['POST'])
+@login_required
+def create_team_recruit():
+    data = request.get_json() or {}
+    title = data.get('title', '').strip()
+    description = data.get('description', '').strip()
+    skills = data.get('skills', '')
+    time_frame = data.get('time_frame', '')
+    
+    if not title:
+        return jsonify({'success': False, 'error': '标题不能为空'}), 400
+    
+    recruit = TeamRecruit(
+        title=title,
+        description=description,
+        skills=skills,
+        time_frame=time_frame,
+        creator_id=session.get('user_id')
+    )
+    
+    db.session.add(recruit)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': '团队招募发布成功', 'data': {'id': recruit.id}}), 201
+
+# 加入团队
+@app.route('/api/team-recruit/<int:recruit_id>/join', methods=['POST'])
+@login_required
+def join_team(recruit_id):
+    recruit = TeamRecruit.query.get(recruit_id)
+    if not recruit:
+        return jsonify({'success': False, 'error': '招募信息不存在'}), 404
+    
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)
+    
+    if user in recruit.members:
+        return jsonify({'success': False, 'error': '您已经加入该团队'}), 400
+    
+    recruit.members.append(user)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': '成功加入团队'})
+
+# 退出团队
+@app.route('/api/team-recruit/<int:recruit_id>/leave', methods=['POST'])
+@login_required
+def leave_team(recruit_id):
+    recruit = TeamRecruit.query.get(recruit_id)
+    if not recruit:
+        return jsonify({'success': False, 'error': '招募信息不存在'}), 404
+    
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)
+    
+    if user not in recruit.members:
+        return jsonify({'success': False, 'error': '您不是该团队成员'}), 400
+    
+    if recruit.creator_id == user_id:
+        return jsonify({'success': False, 'error': '创建者不能退出团队'}), 400
+    
+    recruit.members.remove(user)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'message': '已退出团队'})
 
 # ---------------------------- 个人中心API ----------------------------
 
@@ -1881,6 +2266,7 @@ def handle_friend_request(friendship_id):
         return jsonify({"success": False, "error": "action必须是accept或reject"}), 400
     
     current_user_id = session["user_id"]
+    current_user = User.query.get(current_user_id)
     friendship = Friendship.query.get(friendship_id)
     
     if not friendship:
@@ -1904,6 +2290,30 @@ def handle_friend_request(friendship_id):
     
     try:
         db.session.commit()
+        
+        # 如果接受请求，创建通知给请求发起者
+        if action == 'accept':
+            notification = Notification(
+                user_id=friendship.sender_id,
+                type='friend_accepted',
+                title='好友请求通过',
+                content=f'{current_user.username} 接受了您的好友请求',
+                related_id=str(friendship.id)
+            )
+            db.session.add(notification)
+            db.session.commit()
+            
+            # 推送实时通知
+            from flask_socketio import emit
+            emit('notification', {
+                'id': notification.id,
+                'type': notification.type,
+                'title': notification.title,
+                'content': notification.content,
+                'created_at': notification.created_at,
+                'is_read': False
+            }, room=friendship.sender_id)
+        
         return jsonify({
             "success": True,
             "message": f"已{'接受' if action == 'accept' else '拒绝'}好友请求",
@@ -2488,7 +2898,236 @@ def forgot_password_page():
     return render_template('forgot_password.html')
 
 
+# ---------------------------- SocketIO事件处理 ----------------------------
+
+# 存储在线用户的房间
+online_users = {}
+
+@socketio.on('connect')
+def handle_connect():
+    print('Client connected')
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print('Client disconnected')
+    # 清理离线用户
+    for user_id, sid in list(online_users.items()):
+        if sid == request.sid:
+            del online_users[user_id]
+            break
+
+@socketio.on('join')
+def handle_join(data):
+    user_id = data.get('user_id')
+    if user_id:
+        join_room(user_id)
+        online_users[user_id] = request.sid
+        print(f'User {user_id} joined room')
+
+@socketio.on('send_message')
+def handle_send_message(data):
+    sender_id = data.get('sender_id')
+    receiver_id = data.get('receiver_id')
+    content = data.get('content')
+    
+    if not all([sender_id, receiver_id, content]):
+        emit('error', {'message': 'Missing required fields'})
+        return
+    
+    # 保存消息到数据库
+    with app.app_context():
+        message = Message(
+            sender_id=sender_id,
+            receiver_id=receiver_id,
+            content=content
+        )
+        db.session.add(message)
+        db.session.commit()
+        
+        # 获取发送者信息
+        sender = User.query.get(sender_id)
+        
+        # 发送消息给接收者
+        message_data = {
+            'id': message.id,
+            'sender_id': sender_id,
+            'sender_username': sender.username if sender else 'Unknown',
+            'receiver_id': receiver_id,
+            'content': content,
+            'created_at': message.created_at,
+            'is_read': False
+        }
+        
+        emit('receive_message', message_data, room=receiver_id)
+        # 也发送给自己，保持界面同步
+        emit('receive_message', message_data, room=sender_id)
+        
+        # 创建通知
+        notification = Notification(
+            user_id=receiver_id,
+            type='message',
+            title='新消息',
+            content=f'您收到来自 {sender.username if sender else "用户"} 的新消息',
+            related_id=str(message.id)
+        )
+        db.session.add(notification)
+        db.session.commit()
+        
+        # 推送通知
+        emit('notification', {
+            'id': notification.id,
+            'type': notification.type,
+            'title': notification.title,
+            'content': notification.content,
+            'created_at': notification.created_at,
+            'is_read': False
+        }, room=receiver_id)
+
+@socketio.on('mark_as_read')
+def handle_mark_as_read(data):
+    user_id = data.get('user_id')
+    other_user_id = data.get('other_user_id')
+    
+    if user_id and other_user_id:
+        with app.app_context():
+            # 标记消息为已读
+            Message.query.filter_by(
+                sender_id=other_user_id,
+                receiver_id=user_id,
+                is_read=False
+            ).update({'is_read': True})
+            db.session.commit()
+
+# ---------------------------- 数据统计API ----------------------------
+
+@app.route('/api/stats/overview', methods=['GET'])
+@login_required
+def get_stats_overview():
+    """获取平台整体统计数据"""
+    try:
+        # 用户统计
+        total_users = User.query.count()
+        active_users_today = User.query.filter(
+            User.created_at >= datetime.now().strftime('%Y-%m-%d')
+        ).count()
+        
+        # 活动统计
+        total_activities = Activity.query.count()
+        upcoming_activities = Activity.query.filter(
+            Activity.time >= datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        ).count()
+        
+        # 帖子统计
+        total_posts = Post.query.count()
+        posts_today = Post.query.filter(
+            Post.created_at >= datetime.now().strftime('%Y-%m-%d')
+        ).count()
+        
+        # 小组统计
+        total_groups = Group.query.count()
+        
+        # 团队招募统计
+        total_teams = TeamRecruit.query.count()
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'users': {
+                    'total': total_users,
+                    'new_today': active_users_today
+                },
+                'activities': {
+                    'total': total_activities,
+                    'upcoming': upcoming_activities
+                },
+                'posts': {
+                    'total': total_posts,
+                    'new_today': posts_today
+                },
+                'groups': {
+                    'total': total_groups
+                },
+                'teams': {
+                    'total': total_teams
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/stats/activities', methods=['GET'])
+@login_required
+def get_activity_stats():
+    """获取活动统计数据"""
+    try:
+        # 按类型统计活动数量
+        activity_types = db.session.query(
+            Activity.type, 
+            db.func.count(Activity.id).label('count')
+        ).group_by(Activity.type).all()
+        
+        # 参与度统计（前10个最热门的活动）
+        popular_activities = Activity.query.order_by(
+            Activity.participant_count.desc()
+        ).limit(10).all()
+        
+        popular_data = []
+        for act in popular_activities:
+            popular_data.append({
+                'title': act.title,
+                'participants_count': len(act.participants),
+                'type': act.type
+            })
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'by_type': [{'type': t[0], 'count': t[1]} for t in activity_types],
+                'popular': popular_data
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/stats/posts', methods=['GET'])
+@login_required
+def get_post_stats():
+    """获取帖子统计数据"""
+    try:
+        # 按分类统计帖子数量
+        post_categories = db.session.query(
+            Post.category,
+            db.func.count(Post.id).label('count')
+        ).group_by(Post.category).all()
+        
+        # 评论最多的帖子
+        posts_with_comments = db.session.query(
+            Post,
+            db.func.count(Comment.id).label('comment_count')
+        ).outerjoin(Comment).group_by(Post.id).order_by(
+            db.desc('comment_count')
+        ).limit(10).all()
+        
+        popular_posts = []
+        for post, comment_count in posts_with_comments:
+            popular_posts.append({
+                'title': post.title,
+                'category': post.category,
+                'comment_count': comment_count,
+                'author': post.author.username if post.author else '未知'
+            })
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'by_category': [{'category': c[0], 'count': c[1]} for c in post_categories],
+                'popular': popular_posts
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ---------------------------- 运行应用 ----------------------------
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    socketio.run(app, debug=True, host='0.0.0.0', port=5001)

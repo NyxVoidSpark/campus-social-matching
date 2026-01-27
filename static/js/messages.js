@@ -4,6 +4,7 @@ let currentUser = null;
 let currentChatUserId = null;
 let conversations = [];
 let messagePollingInterval = null;
+let socket = null;
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', function() {
@@ -31,7 +32,8 @@ function checkLoginStatus() {
             if (result.success) {
                 currentUser = result.data;
                 loadConversations();
-                // 开始轮询未读消息
+                initSocket();
+                // 开始轮询未读消息（作为备用）
                 startMessagePolling();
             }
         })
@@ -39,6 +41,50 @@ function checkLoginStatus() {
             console.error('检查登录状态失败:', error);
             window.location.href = '/login';
         });
+}
+
+// 初始化SocketIO连接
+function initSocket() {
+    // 请求通知权限
+    if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+    }
+    
+    socket = io();
+    
+    socket.on('connect', function() {
+        console.log('Connected to server');
+        // 加入用户房间
+        socket.emit('join', {user_id: currentUser.id});
+    });
+    
+    socket.on('disconnect', function() {
+        console.log('Disconnected from server');
+    });
+    
+    socket.on('receive_message', function(message) {
+        console.log('Received message:', message);
+        // 如果是当前聊天用户，添加到界面
+        if (currentChatUserId === message.sender_id || currentChatUserId === message.receiver_id) {
+            addMessageToChat(message);
+        }
+        // 更新对话列表
+        loadConversations();
+        // 更新未读计数
+        updateUnreadCount();
+    });
+    
+    socket.on('notification', function(notification) {
+        console.log('Received notification:', notification);
+        // 显示通知
+        showNotification(notification);
+        // 更新通知计数
+        updateNotificationCount();
+    });
+    
+    socket.on('error', function(error) {
+        console.error('Socket error:', error);
+    });
 }
 
 // 加载会话列表
@@ -190,6 +236,25 @@ function displayMessages(messages, targetUser) {
     `;
 }
 
+// 添加消息到聊天界面（用于实时消息）
+function addMessageToChat(message) {
+    const chatMessages = document.getElementById('chatMessages');
+    if (!chatMessages) return;
+    
+    const isOwn = message.sender_id === currentUser.id;
+    const messageHtml = `
+        <div class="message-item ${isOwn ? 'own' : 'other'}">
+            <div class="message-bubble">
+                <div>${escapeHtml(message.content)}</div>
+                <div class="message-time">${formatTime(message.created_at)}</div>
+            </div>
+        </div>
+    `;
+    
+    chatMessages.insertAdjacentHTML('beforeend', messageHtml);
+    scrollToBottom();
+}
+
 // 发送消息
 function sendMessage() {
     const input = document.getElementById('messageInput');
@@ -204,32 +269,43 @@ function sendMessage() {
         return;
     }
     
-    fetch('/api/messages', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
+    // 使用SocketIO发送消息
+    if (socket) {
+        socket.emit('send_message', {
+            sender_id: currentUser.id,
             receiver_id: currentChatUserId,
             content: content
+        });
+        input.value = '';
+    } else {
+        // 备用：使用HTTP API
+        fetch('/api/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                receiver_id: currentChatUserId,
+                content: content
+            })
         })
-    })
-    .then(response => response.json())
-    .then(result => {
-        if (result.success) {
-            input.value = '';
-            // 重新加载消息
-            loadMessages(currentChatUserId);
-            // 重新加载会话列表
-            loadConversations();
-        } else {
-            showError('发送失败: ' + result.error);
-        }
-    })
-    .catch(error => {
-        console.error('发送消息失败:', error);
-        showError('发送失败');
-    });
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                input.value = '';
+                // 重新加载消息
+                loadMessages(currentChatUserId);
+                // 重新加载会话列表
+                loadConversations();
+            } else {
+                showError('发送失败: ' + result.error);
+            }
+        })
+        .catch(error => {
+            console.error('发送消息失败:', error);
+            showError('发送失败');
+        });
+    }
 }
 
 // 处理回车键发送
@@ -297,6 +373,41 @@ function stopMessagePolling() {
 
 // 页面卸载时停止轮询
 window.addEventListener('beforeunload', stopMessagePolling);
+
+// 显示通知
+function showNotification(notification) {
+    // 使用浏览器原生通知
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(notification.title, {
+            body: notification.content,
+            icon: '/static/images/logo.png'
+        });
+    }
+    
+    // 显示页面内通知
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-info alert-dismissible fade show position-fixed top-0 end-0 mt-3 me-3';
+    alert.style.zIndex = '9999';
+    alert.innerHTML = `
+        <strong>${notification.title}</strong><br>
+        ${notification.content}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alert);
+    
+    // 3秒后自动消失
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.remove();
+        }
+    }, 3000);
+}
+
+// 更新通知计数
+function updateNotificationCount() {
+    // 这里可以更新页面上的通知徽章
+    // 暂时留空，后续在主页面实现
+}
 
 // 显示错误消息
 function showError(message) {

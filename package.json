@@ -1,0 +1,32 @@
+{
+  "name": "campus-social-matching",
+  "version": "1.0.0",
+  "description": "此仓库实现了一个「校园活动 + 分类信息 + 好友 & 私聊」的示例应用，包含：",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "build-css": "postcss static/css/main.css -o static/css/output.css",
+    "watch-css": "postcss static/css/main.css -o static/css/output.css --watch",
+    "dev": "npm run watch-css"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NyxVoidSpark/campus-social-matching.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/NyxVoidSpark/campus-social-matching/issues"
+  },
+  "homepage": "https://github.com/NyxVoidSpark/campus-social-matching#readme",
+  "devDependencies": {
+    "autoprefixer": "^10.4.23",
+    "daisyui": "^5.5.14",
+    "postcss": "^8.5.6",
+    "postcss-cli": "^11.0.1",
+    "tailwindcss": "^4.1.18"
+  }
+}

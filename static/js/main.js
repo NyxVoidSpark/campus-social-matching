@@ -136,6 +136,8 @@ function filterActivities(type) {
 
 // 搜索活动
 function searchActivities() {
+    applyAdvancedFilters();
+}
     const keyword = document.getElementById('searchInput').value.trim();
 
     if (!keyword) {
@@ -1157,3 +1159,112 @@ function createGroup(){
 }
 
 function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+
+// 高级搜索和筛选功能
+function applyAdvancedFilters() {
+    const keyword = document.getElementById('searchInput').value.trim();
+    const location = document.getElementById('locationFilter').value.trim();
+    const dateFrom = document.getElementById('dateFromFilter').value;
+    const dateTo = document.getElementById('dateToFilter').value;
+    const tags = document.getElementById('tagsFilter').value.trim();
+    const sortBy = document.getElementById('sortFilter').value;
+
+    // 构建查询参数
+    const params = new URLSearchParams();
+    params.append('type', currentSearchType);
+    
+    if (keyword) params.append('keyword', keyword);
+    if (location) params.append('location', location);
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+    if (tags) params.append('tags', tags);
+    if (sortBy) params.append('sort_by', sortBy);
+
+    // 显示搜索中状态
+    const container = document.getElementById('activity-list');
+    container.innerHTML = `
+        <div class="col-12 text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">搜索中...</span>
+            </div>
+            <p class="mt-3">正在搜索中...</p>
+        </div>
+    `;
+
+    // 调用搜索API
+    fetch(`/api/activities/search?${params.toString()}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('搜索请求失败');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                if (data.count === 0) {
+                    container.innerHTML = `
+                        <div class="col-12">
+                            <div class="alert alert-info">
+                                <i class="fas fa-search"></i> 没有找到符合条件的活动
+                                <button class="btn btn-sm btn-outline-primary ms-3" onclick="loadActivities()">
+                                    显示所有活动
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `
+                        <div class="col-12 mb-3">
+                            <div class="alert alert-success d-flex justify-content-between align-items-center">
+                                <span>
+                                    <i class="fas fa-check-circle"></i> 找到 ${data.count} 个活动
+                                </span>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="clearFilters()">
+                                    清除筛选
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    displayActivities(data.data);
+                }
+            } else {
+                container.innerHTML = `
+                    <div class="col-12">
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle"></i> 搜索失败：${data.error || '未知错误'}
+                        </div>
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('搜索失败:', error);
+            container.innerHTML = `
+                <div class="col-12">
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle"></i> 搜索失败，请稍后重试
+                    </div>
+                </div>
+            `;
+        });
+}
+
+function clearFilters() {
+    document.getElementById('searchInput').value = '';
+    document.getElementById('locationFilter').value = '';
+    document.getElementById('dateFromFilter').value = '';
+    document.getElementById('dateToFilter').value = '';
+    document.getElementById('tagsFilter').value = '';
+    document.getElementById('sortFilter').value = 'newest';
+    currentSearchType = 'all';
+    
+    // 重置类型按钮状态
+    document.querySelectorAll('#activityTypeButtons .btn').forEach(btn => {
+        btn.classList.remove('active', 'btn-primary');
+        btn.classList.add('btn-outline-primary');
+    });
+    document.querySelector('#activityTypeButtons .btn:first-child').classList.add('active', 'btn-primary');
+    document.querySelector('#activityTypeButtons .btn:first-child').classList.remove('btn-outline-primary');
+    
+    loadActivities();
+}

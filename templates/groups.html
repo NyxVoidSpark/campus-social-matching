@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小组 - 校园社交匹配</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .group-card {
+            transition: transform 0.2s;
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .group-card:hover {
+            transform: translateY(-2px);
+        }
+        .group-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">校园平台</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">首页</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/forum">论坛</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/groups">小组</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/friends">好友</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/messages">消息</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                            <span id="usernameDisplay">加载中...</span>
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/profile">个人中心</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="logout()">退出登录</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 页面头部 -->
+    <div class="group-header">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-lg-8">
+                    <h1 class="display-4 fw-bold mb-3">兴趣小组</h1>
+                    <p class="lead mb-0">加入志同道合的小组，发现更多精彩</p>
+                </div>
+                <div class="col-lg-4 text-lg-end">
+                    <button class="btn btn-light btn-lg" data-bs-toggle="modal" data-bs-target="#createGroupModal">
+                        <i class="fas fa-plus me-2"></i>创建小组
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 搜索和筛选 -->
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="searchInput" placeholder="搜索小组...">
+                    <button class="btn btn-outline-primary" onclick="searchGroups()">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <select class="form-select" id="sortSelect" onchange="loadGroups()">
+                    <option value="newest">最新创建</option>
+                    <option value="name">按名称排序</option>
+                    <option value="members">成员数量</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- 小组列表 -->
+        <div class="row" id="groupsList">
+            <!-- 动态加载小组卡片 -->
+        </div>
+
+        <!-- 加载更多 -->
+        <div class="text-center mt-4" id="loadMoreContainer" style="display: none;">
+            <button class="btn btn-outline-primary" id="loadMoreBtn" onclick="loadMoreGroups()">
+                <i class="fas fa-plus me-2"></i>加载更多
+            </button>
+        </div>
+    </div>
+
+    <!-- 创建小组模态框 -->
+    <div class="modal fade" id="createGroupModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">创建新小组</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createGroupForm">
+                        <div class="mb-3">
+                            <label for="groupName" class="form-label">小组名称 <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="groupName" name="name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="groupDescription" class="form-label">小组描述</label>
+                            <textarea class="form-control" id="groupDescription" name="description" rows="3"></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="createGroup()">创建</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 小组详情模态框 -->
+    <div class="modal fade" id="groupDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="groupDetailTitle"></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="groupDetailBody">
+                    <!-- 动态加载内容 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentPage = 1;
+        let hasMoreGroups = true;
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUserInfo();
+            loadGroups();
+        });
+
+        // 加载用户信息
+        function loadUserInfo() {
+            fetch('/api/current-user')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('usernameDisplay').textContent = data.data.username;
+                    }
+                });
+        }
+
+        // 登出
+        function logout() {
+            fetch('/api/logout', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        window.location.href = '/login';
+                    }
+                });
+        }
+
+        // 加载小组列表
+        function loadGroups(reset = true) {
+            if (reset) {
+                currentPage = 1;
+                hasMoreGroups = true;
+                document.getElementById('groupsList').innerHTML = '';
+            }
+
+            const search = document.getElementById('searchInput').value;
+            const sort = document.getElementById('sortSelect').value;
+
+            fetch(`/api/groups?page=${currentPage}&search=${encodeURIComponent(search)}&sort=${sort}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayGroups(data.data, reset);
+                        hasMoreGroups = data.has_more;
+                        document.getElementById('loadMoreContainer').style.display = hasMoreGroups ? 'block' : 'none';
+                    }
+                });
+        }
+
+        // 显示小组
+        function displayGroups(groups, reset) {
+            const container = document.getElementById('groupsList');
+
+            groups.forEach(group => {
+                const groupCard = `
+                    <div class="col-lg-4 col-md-6 mb-4">
+                        <div class="card group-card h-100">
+                            <div class="card-body d-flex flex-column">
+                                <h5 class="card-title">${group.name}</h5>
+                                <p class="card-text flex-grow-1">${group.description || '暂无描述'}</p>
+                                <div class="mt-auto">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <small class="text-muted">成员: ${group.member_count || 0}</small>
+                                        <small class="text-muted">${group.created_at || ''}</small>
+                                    </div>
+                                    <button class="btn btn-primary w-100" onclick="viewGroup(${group.id})">
+                                        查看详情
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', groupCard);
+            });
+        }
+
+        // 搜索小组
+        function searchGroups() {
+            loadGroups(true);
+        }
+
+        // 加载更多
+        function loadMoreGroups() {
+            currentPage++;
+            loadGroups(false);
+        }
+
+        // 创建小组
+        function createGroup() {
+            const form = document.getElementById('createGroupForm');
+            const formData = new FormData(form);
+            const data = Object.fromEntries(formData);
+
+            fetch('/api/groups', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('createGroupModal')).hide();
+                    form.reset();
+                    loadGroups(true);
+                    alert('小组创建成功！');
+                } else {
+                    alert('创建失败: ' + data.error);
+                }
+            });
+        }
+
+        // 查看小组详情
+        function viewGroup(groupId) {
+            fetch(`/api/groups/${groupId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const group = data.data;
+                        document.getElementById('groupDetailTitle').textContent = group.name;
+                        document.getElementById('groupDetailBody').innerHTML = `
+                            <div class="mb-3">
+                                <h6>小组描述</h6>
+                                <p>${group.description || '暂无描述'}</p>
+                            </div>
+                            <div class="mb-3">
+                                <h6>成员列表</h6>
+                                <div id="groupMembers">
+                                    ${group.members.map(member => `
+                                        <div class="d-flex align-items-center mb-2">
+                                            <img src="${member.avatar || '/static/images/default.jpg'}" 
+                                                 class="rounded-circle me-2" width="32" height="32">
+                                            <span>${member.username}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                ${group.is_member ? 
+                                    '<button class="btn btn-danger" onclick="leaveGroup(' + group.id + ')">退出小组</button>' :
+                                    '<button class="btn btn-success" onclick="joinGroup(' + group.id + ')">加入小组</button>'
+                                }
+                            </div>
+                        `;
+                        new bootstrap.Modal(document.getElementById('groupDetailModal')).show();
+                    }
+                });
+        }
+
+        // 加入小组
+        function joinGroup(groupId) {
+            fetch(`/api/groups/${groupId}/join`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        bootstrap.Modal.getInstance(document.getElementById('groupDetailModal')).hide();
+                        loadGroups(true);
+                        alert('成功加入小组！');
+                    } else {
+                        alert('加入失败: ' + data.error);
+                    }
+                });
+        }
+
+        // 退出小组
+        function leaveGroup(groupId) {
+            fetch(`/api/groups/${groupId}/leave`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        bootstrap.Modal.getInstance(document.getElementById('groupDetailModal')).hide();
+                        loadGroups(true);
+                        alert('已退出小组！');
+                    } else {
+                        alert('退出失败: ' + data.error);
+                    }
+                });
+        }
+    </script>
+</body>
+</html></content>
+<parameter name="filePath">c:\Users\21290\campus-social-matching\templates\groups.html

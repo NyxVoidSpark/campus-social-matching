@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}校园社交匹配{% endblock %}</title>
+
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="校园活动平台，连接学生，发现活动，分享经验">
+    <meta name="keywords" content="校园,活动,论坛,小组,团队招募">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css">
+
+    <!-- Styles -->
+    <link href="/static/css/output.css" rel="stylesheet">
+
+    <!-- Scripts -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/daisyui@4.4.20/dist/full.js"></script>
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="min-h-screen bg-base-200 font-['Inter']">
+    <!-- 主题切换器 -->
+    <div class="fixed bottom-4 right-4 z-50">
+        <label class="swap swap-rotate btn btn-circle btn-ghost">
+            <input type="checkbox" id="themeToggle" />
+            <svg class="swap-on fill-current w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/>
+            </svg>
+            <svg class="swap-off fill-current w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <path d="M21,14H20V16H18V14H16V12H18V10H20V12H22V14M4,5A1,1 0 0,1 5,6V18A1,1 0 0,1 4,19A1,1 0 0,1 3,18V6A1,1 0 0,1 4,5M7,5A1,1 0 0,1 8,6V18A1,1 0 0,1 7,19A1,1 0 0,1 6,18V6A1,1 0 0,1 7,5M10,5A1,1 0 0,1 11,6V18A1,1 0 0,1 10,19A1,1 0 0,1 9,18V6A1,1 0 0,1 10,5M13,5A1,1 0 0,1 14,6V18A1,1 0 0,1 13,19A1,1 0 0,1 12,18V6A1,1 0 0,1 13,5Z"/>
+            </svg>
+        </label>
+    </div>
+
+    <!-- 页面内容 -->
+    <div class="min-h-screen flex flex-col">
+        {% block navbar %}{% endblock %}
+
+        <main class="flex-1">
+            {% block content %}{% endblock %}
+        </main>
+
+        {% block footer %}{% endblock %}
+    </div>
+
+    <!-- 全局脚本 -->
+    <script>
+        // 主题切换功能
+        const themeToggle = document.getElementById('themeToggle');
+        const html = document.documentElement;
+
+        // 检查本地存储中的主题设置
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        html.setAttribute('data-theme', savedTheme);
+        themeToggle.checked = savedTheme === 'dark';
+
+        themeToggle.addEventListener('change', function() {
+            const newTheme = this.checked ? 'dark' : 'light';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+
+            // 触发主题变化事件
+            window.dispatchEvent(new CustomEvent('themeChange', { detail: newTheme }));
+        });
+
+        // 页面加载完成事件
+        document.addEventListener('DOMContentLoaded', function() {
+            // 添加页面加载动画
+            document.body.classList.add('animate-fade-in');
+
+            // 检查用户登录状态
+            checkAuthStatus();
+        });
+
+        // 检查认证状态
+        function checkAuthStatus() {
+            fetch('/api/current-user')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        window.user = data.data;
+                        window.dispatchEvent(new CustomEvent('userLoaded', { detail: data.data }));
+                    }
+                })
+                .catch(error => {
+                    console.warn('用户未登录:', error);
+                });
+        }
+
+        // 全局错误处理
+        window.addEventListener('error', function(e) {
+            console.error('全局错误:', e.error);
+        });
+
+        // 网络状态监听
+        window.addEventListener('online', function() {
+            showToast('网络已恢复', 'success');
+        });
+
+        window.addEventListener('offline', function() {
+            showToast('网络已断开', 'error');
+        });
+
+        // Toast 通知系统
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `alert alert-${type} fixed top-4 right-4 z-50 max-w-sm shadow-lg animate-bounce-in`;
+            toast.innerHTML = `
+                <div>
+                    <span>${message}</span>
+                </div>
+                <div>
+                    <button class="btn btn-sm btn-circle btn-ghost" onclick="this.parentElement.parentElement.remove()">
+                        ✕
+                    </button>
+                </div>
+            `;
+
+            document.body.appendChild(toast);
+
+            // 3秒后自动移除
+            setTimeout(() => {
+                if (toast.parentElement) {
+                    toast.remove();
+                }
+            }, 3000);
+        }
+
+        // 全局工具函数
+        window.utils = {
+            // 格式化日期
+            formatDate: function(dateString) {
+                const date = new Date(dateString);
+                return date.toLocaleDateString('zh-CN', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            },
+
+            // 格式化相对时间
+            formatRelativeTime: function(dateString) {
+                const now = new Date();
+                const date = new Date(dateString);
+                const diff = now - date;
+                const minutes = Math.floor(diff / 60000);
+                const hours = Math.floor(diff / 3600000);
+                const days = Math.floor(diff / 86400000);
+
+                if (minutes < 1) return '刚刚';
+                if (minutes < 60) return `${minutes}分钟前`;
+                if (hours < 24) return `${hours}小时前`;
+                if (days < 30) return `${days}天前`;
+                return this.formatDate(dateString);
+            },
+
+            // 复制到剪贴板
+            copyToClipboard: async function(text) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    showToast('已复制到剪贴板', 'success');
+                } catch (err) {
+                    // 降级方案
+                    const textArea = document.createElement('textarea');
+                    textArea.value = text;
+                    document.body.appendChild(textArea);
+                    textArea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    showToast('已复制到剪贴板', 'success');
+                }
+            },
+
+            // 防抖函数
+            debounce: function(func, wait) {
+                let timeout;
+                return function executedFunction(...args) {
+                    const later = () => {
+                        clearTimeout(timeout);
+                        func(...args);
+                    };
+                    clearTimeout(timeout);
+                    timeout = setTimeout(later, wait);
+                };
+            },
+
+            // 节流函数
+            throttle: function(func, limit) {
+                let inThrottle;
+                return function() {
+                    const args = arguments;
+                    const context = this;
+                    if (!inThrottle) {
+                        func.apply(context, args);
+                        inThrottle = true;
+                        setTimeout(() => inThrottle = false, limit);
+                    }
+                }
+            }
+        };
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,81 +1,193 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>用户登录 - 校园活动平台</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        .auth-container {
-            max-width: 400px;
-            margin: 50px auto;
-            padding: 20px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            border-radius: 5px;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        body {
-            background-color: #f8f9fa;
-        }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="/static/css/output.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/daisyui@4.4.20/dist/full.js"></script>
 </head>
-<body>
-    <div class="auth-container bg-white">
-        <h2 class="text-center mb-4">用户登录</h2>
-        <form id="loginForm">
-            <div class="form-group">
-                <label for="username">用户名</label>
-                <input type="text" class="form-control" id="username" name="username" required>
+<body class="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-4">
+    <!-- 背景装饰 -->
+    <div class="absolute inset-0 overflow-hidden">
+        <div class="absolute -top-40 -right-40 w-80 h-80 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse"></div>
+        <div class="absolute -bottom-40 -left-40 w-80 h-80 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-pulse"></div>
+    </div>
+
+    <div class="relative z-10 w-full max-w-md">
+        <!-- 登录卡片 -->
+        <div class="bg-white/80 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/20 p-8 animate-fade-in">
+            <!-- Logo和标题 -->
+            <div class="text-center mb-8">
+                <div class="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full mb-4">
+                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+                    </svg>
+                </div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">欢迎回来</h1>
+                <p class="text-gray-600">登录您的校园活动平台账号</p>
             </div>
-            <div class="form-group">
-                <label for="password">密码</label>
-                <input type="password" class="form-control" id="password" name="password" required>
+
+            <!-- 登录表单 -->
+            <form id="loginForm" class="space-y-6">
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text font-medium">用户名</span>
+                    </label>
+                    <input type="text"
+                           id="username"
+                           name="username"
+                           placeholder="请输入用户名"
+                           class="input input-bordered input-primary w-full focus:input-primary-focus transition-all duration-200"
+                           required>
+                </div>
+
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text font-medium">密码</span>
+                    </label>
+                    <input type="password"
+                           id="password"
+                           name="password"
+                           placeholder="请输入密码"
+                           class="input input-bordered input-primary w-full focus:input-primary-focus transition-all duration-200"
+                           required>
+                </div>
+
+                <!-- 错误信息 -->
+                <div id="errorMsg" class="alert alert-error hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span id="errorText"></span>
+                </div>
+
+                <!-- 登录按钮 -->
+                <button type="submit"
+                        id="loginBtn"
+                        class="btn btn-primary w-full btn-lg font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200">
+                    <span class="loading loading-spinner loading-sm hidden" id="loadingSpinner"></span>
+                    登录
+                </button>
+            </form>
+
+            <!-- 其他选项 -->
+            <div class="divider my-6">或</div>
+
+            <div class="text-center space-y-3">
+                <a href="/forgot-password"
+                   class="link link-primary link-hover font-medium transition-colors duration-200">
+                    忘记密码？
+                </a>
+
+                <p class="text-gray-600">
+                    还没有账号？
+                    <a href="/register"
+                       class="link link-primary link-hover font-semibold transition-colors duration-200">
+                        立即注册
+                    </a>
+                </p>
             </div>
-            <div class="text-danger mb-3" id="errorMsg"></div>
-            <button type="submit" class="btn btn-primary w-100">登录</button>
-        </form>
-        <!-- 新增：忘记密码链接 -->
-        <p class="text-center mt-2">
-            <a href="/forgot-password" class="text-primary">忘记密码？</a>
-        </p>
-        <p class="text-center mt-3">
-            没有账号？<a href="/register">立即注册</a>
-        </p>
+
+            <!-- 主题切换 -->
+            <div class="flex justify-center mt-6">
+                <label class="swap swap-rotate">
+                    <input type="checkbox" id="themeToggle" />
+                    <svg class="swap-on fill-current w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/>
+                    </svg>
+                    <svg class="swap-off fill-current w-6 h-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M21,14H20V16H18V14H16V12H18V10H20V12H22V14M4,5A1,1 0 0,1 5,6V18A1,1 0 0,1 4,19A1,1 0 0,1 3,18V6A1,1 0 0,1 4,5M7,5A1,1 0 0,1 8,6V18A1,1 0 0,1 7,19A1,1 0 0,1 6,18V6A1,1 0 0,1 7,5M10,5A1,1 0 0,1 11,6V18A1,1 0 0,1 10,19A1,1 0 0,1 9,18V6A1,1 0 0,1 10,5M13,5A1,1 0 0,1 14,6V18A1,1 0 0,1 13,19A1,1 0 0,1 12,18V6A1,1 0 0,1 13,5Z"/>
+                    </svg>
+                </label>
+            </div>
+        </div>
     </div>
 
     <script>
-        document.getElementById('loginForm').addEventListener('submit', function(e) {
+        // 主题切换功能
+        const themeToggle = document.getElementById('themeToggle');
+        const html = document.documentElement;
+
+        // 检查本地存储中的主题设置
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        html.setAttribute('data-theme', savedTheme);
+        themeToggle.checked = savedTheme === 'dark';
+
+        themeToggle.addEventListener('change', function() {
+            const newTheme = this.checked ? 'dark' : 'light';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+        });
+
+        // 登录表单处理
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
             e.preventDefault();
+
+            const loginBtn = document.getElementById('loginBtn');
+            const loadingSpinner = document.getElementById('loadingSpinner');
             const errorMsg = document.getElementById('errorMsg');
-            errorMsg.textContent = '';
-            
+            const errorText = document.getElementById('errorText');
+
+            // 显示加载状态
+            loginBtn.disabled = true;
+            loadingSpinner.classList.remove('hidden');
+            errorMsg.classList.add('hidden');
+
             const data = {
                 username: document.getElementById('username').value,
                 password: document.getElementById('password').value
             };
-            
-            // 🔥 关键修复：添加 credentials: 'include'
-            fetch('/api/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(data),
-                credentials: 'include'  // 添加这一行
-            })
-            .then(response => response.json())
-            .then(result => {
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data),
+                    credentials: 'include'
+                });
+
+                const result = await response.json();
+
                 if (result.success) {
-                    console.log('登录成功，跳转到首页');
-                    // 登录成功后跳转到首页
-                    window.location.href = '/';
+                    // 登录成功动画
+                    loginBtn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> 登录成功...';
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1000);
                 } else {
-                    errorMsg.textContent = result.error;
+                    // 显示错误
+                    errorText.textContent = result.error;
+                    errorMsg.classList.remove('hidden');
+
+                    // 重置按钮
+                    loginBtn.disabled = false;
+                    loadingSpinner.classList.add('hidden');
+                    loginBtn.innerHTML = '登录';
                 }
-            })
-            .catch(error => {
-                errorMsg.textContent = '登录失败，请重试';
-                console.error('登录错误:', error);
+            } catch (error) {
+                errorText.textContent = '网络错误，请重试';
+                errorMsg.classList.remove('hidden');
+
+                // 重置按钮
+                loginBtn.disabled = false;
+                loadingSpinner.classList.add('hidden');
+                loginBtn.innerHTML = '登录';
+            }
+        });
+
+        // 输入框动画效果
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('focus', function() {
+                this.parentElement.classList.add('animate-slide-up');
+            });
+
+            input.addEventListener('blur', function() {
+                this.parentElement.classList.remove('animate-slide-up');
             });
         });
     </script>

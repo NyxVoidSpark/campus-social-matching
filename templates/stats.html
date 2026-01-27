@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据统计 - 校园社交匹配</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .stats-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+        .stats-card {
+            transition: transform 0.2s;
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .stats-card:hover {
+            transform: translateY(-2px);
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">校园平台</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">首页</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/forum">论坛</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/stats">统计</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/groups">小组</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/stats">统计</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/friends">好友</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/messages">消息</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown">
+                            <span id="usernameDisplay">加载中...</span>
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="/profile">个人中心</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="logout()">退出登录</a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 页面头部 -->
+    <div class="stats-header">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-lg-8">
+                    <h1 class="display-4 fw-bold mb-3">数据统计</h1>
+                    <p class="lead mb-0">平台数据概览和分析</p>
+                </div>
+                <div class="col-lg-4 text-lg-end">
+                    <button class="btn btn-light" onclick="refreshStats()">
+                        <i class="fas fa-sync-alt me-2"></i>刷新数据
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 概览统计卡片 -->
+        <div class="row mb-4" id="overviewCards">
+            <!-- 动态加载统计卡片 -->
+        </div>
+
+        <!-- 图表区域 -->
+        <div class="row">
+            <!-- 活动类型分布 -->
+            <div class="col-lg-6 mb-4">
+                <div class="card stats-card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>活动类型分布</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="activityTypeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 帖子分类分布 -->
+            <div class="col-lg-6 mb-4">
+                <div class="card stats-card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>帖子分类分布</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="postCategoryChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 热门内容 -->
+        <div class="row">
+            <!-- 最热门活动 -->
+            <div class="col-lg-6 mb-4">
+                <div class="card stats-card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-fire me-2"></i>最热门活动</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="popularActivities" class="list-group list-group-flush">
+                            <!-- 动态加载 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 最热门帖子 -->
+            <div class="col-lg-6 mb-4">
+                <div class="card stats-card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-comments me-2"></i>最热门帖子</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="popularPosts" class="list-group list-group-flush">
+                            <!-- 动态加载 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let activityTypeChart = null;
+        let postCategoryChart = null;
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUserInfo();
+            loadStats();
+        });
+
+        // 加载用户信息
+        function loadUserInfo() {
+            fetch('/api/current-user')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('usernameDisplay').textContent = data.data.username;
+                    }
+                });
+        }
+
+        // 登出
+        function logout() {
+            fetch('/api/logout', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        window.location.href = '/login';
+                    }
+                });
+        }
+
+        // 加载统计数据
+        function loadStats() {
+            // 加载概览数据
+            fetch('/api/stats/overview')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayOverview(data.data);
+                    }
+                });
+
+            // 加载活动统计
+            fetch('/api/stats/activities')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayActivityStats(data.data);
+                    }
+                });
+
+            // 加载帖子统计
+            fetch('/api/stats/posts')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayPostStats(data.data);
+                    }
+                });
+        }
+
+        // 显示概览数据
+        function displayOverview(data) {
+            const container = document.getElementById('overviewCards');
+            container.innerHTML = `
+                <div class="col-lg-2 col-md-4 mb-3">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <i class="fas fa-users fa-2x text-primary mb-2"></i>
+                            <h4 class="mb-1">${data.users.total}</h4>
+                            <p class="text-muted small mb-0">总用户数</p>
+                            <small class="text-success">+${data.users.new_today} 今日</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-2 col-md-4 mb-3">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <i class="fas fa-calendar fa-2x text-success mb-2"></i>
+                            <h4 class="mb-1">${data.activities.total}</h4>
+                            <p class="text-muted small mb-0">总活动数</p>
+                            <small class="text-info">${data.activities.upcoming} 即将开始</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-2 col-md-4 mb-3">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <i class="fas fa-file-alt fa-2x text-warning mb-2"></i>
+                            <h4 class="mb-1">${data.posts.total}</h4>
+                            <p class="text-muted small mb-0">总帖子数</p>
+                            <small class="text-success">+${data.posts.new_today} 今日</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-2 col-md-4 mb-3">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <i class="fas fa-users-cog fa-2x text-info mb-2"></i>
+                            <h4 class="mb-1">${data.groups.total}</h4>
+                            <p class="text-muted small mb-0">总小组数</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-lg-2 col-md-4 mb-3">
+                    <div class="card stats-card text-center">
+                        <div class="card-body">
+                            <i class="fas fa-user-friends fa-2x text-danger mb-2"></i>
+                            <h4 class="mb-1">${data.teams.total}</h4>
+                            <p class="text-muted small mb-0">团队招募数</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 显示活动统计
+        function displayActivityStats(data) {
+            // 活动类型分布图
+            const ctx = document.getElementById('activityTypeChart').getContext('2d');
+            if (activityTypeChart) {
+                activityTypeChart.destroy();
+            }
+            
+            const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'];
+            activityTypeChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: data.by_type.map(item => item.type),
+                    datasets: [{
+                        data: data.by_type.map(item => item.count),
+                        backgroundColor: colors.slice(0, data.by_type.length),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+
+            // 热门活动列表
+            const popularContainer = document.getElementById('popularActivities');
+            popularContainer.innerHTML = data.popular.map((activity, index) => `
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${index + 1}. ${activity.title}</strong>
+                        <br>
+                        <small class="text-muted">${activity.type}</small>
+                    </div>
+                    <span class="badge bg-primary">${activity.participants_count}人</span>
+                </div>
+            `).join('');
+        }
+
+        // 显示帖子统计
+        function displayPostStats(data) {
+            // 帖子分类分布图
+            const ctx = document.getElementById('postCategoryChart').getContext('2d');
+            if (postCategoryChart) {
+                postCategoryChart.destroy();
+            }
+            
+            postCategoryChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.by_category.map(item => item.category),
+                    datasets: [{
+                        label: '帖子数量',
+                        data: data.by_category.map(item => item.count),
+                        backgroundColor: '#36A2EB',
+                        borderColor: '#36A2EB',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // 热门帖子列表
+            const popularContainer = document.getElementById('popularPosts');
+            popularContainer.innerHTML = data.popular.map((post, index) => `
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>${index + 1}. ${post.title}</strong>
+                        <br>
+                        <small class="text-muted">${post.category} · ${post.author}</small>
+                    </div>
+                    <span class="badge bg-success">${post.comment_count}评论</span>
+                </div>
+            `).join('');
+        }
+
+        // 刷新统计数据
+        function refreshStats() {
+            const btn = event.target;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>刷新中...';
+            btn.disabled = true;
+            
+            loadStats();
+            
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }, 1000);
+        }
+    </script>
+</body>
+</html></content>
+<parameter name="filePath">c:\Users\21290\campus-social-matching\templates\stats.html
