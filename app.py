@@ -514,7 +514,12 @@ def profile_page():
     user = find_user_by_id(user_id)
     if not user:
         return redirect(url_for('login_page'))
-    return render_template("profile.html", user=user)
+    # 补充用户完整信息
+    return render_template("profile.html",
+                         user=user,
+                         joined_activities=len(user.joined_activities),
+                         favorite_activities=len(user.favorite_activities),
+                         posted_count=Post.query.filter_by(author_id=user_id).count())
 
 # 好友管理页
 @app.route('/friends')
@@ -548,9 +553,10 @@ def activity_detail(activity_id):
 @app.route('/teacher/review')
 @login_required
 def teacher_review_page():
-    if not is_teacher(session["user_id"]):
-        return redirect(url_for('home'))
-    return render_template('teacher_review.html')
+    user = find_user_by_id(session["user_id"])
+    if not user or user.role != 'teacher':
+        abort(403)  # 直接拒绝访问，而非跳转首页
+    return render_template('teacher_review.html', teacher_name=user.username)
 
 # 论坛首页（帖子列表）
 @app.route('/forum')
@@ -1641,16 +1647,92 @@ def review_post(post_id):
     except Exception as e:
         return jsonify({"success": False, "error": f"审核失败：{str(e)}"}), 500
 
+
+# 教师获取最近审核记录接口
+@app.route('/api/teacher/recent-reviews', methods=['GET'])
+@login_required
+def get_recent_reviews():
+    if not is_teacher(session["user_id"]):
+        return jsonify({"success": False, "error": "仅教师可访问"}), 403
+
+    # 查询当前教师最近30条审核记录
+    recent_reviews = PostReview.query.filter_by(teacher_id=session["user_id"]) \
+        .order_by(PostReview.created_at.desc()) \
+        .limit(30) \
+        .all()
+
+    result = []
+    for review in recent_reviews:
+        post = Post.query.get(review.post_id)
+        author = User.query.get(post.author_id) if post else None
+        if post:
+            result.append({
+                "id": post.id,
+                "title": post.title,
+                "author_username": author.username if author else "未知用户",
+                "review_status": review.status,
+                "review_comment": review.comment,
+                "reviewed_at": review.created_at,
+                "category": post.category
+            })
+
+    return jsonify({"success": True, "data": result, "count": len(result)})
+
+# 教师审核统计接口
+@app.route('/api/teacher/review-stats', methods=['GET'])
+@login_required
+def get_review_stats():
+    if not is_teacher(session["user_id"]):
+        return jsonify({"success": False, "error": "仅教师可访问"}), 403
+
+    total = Post.query.count()
+    pending = Post.query.filter_by(review_status='pending').count()
+    reviewed = total - pending
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "pending": pending,
+            "total": total,
+            "reviewed": reviewed
+        }
+    })
+
+
+# 教师获取待审核帖子接口（复用现有逻辑，调整返回格式）
+@app.route('/api/teacher/pending-posts', methods=['GET'])
+@login_required
+def get_teacher_pending_posts():
+    user = find_user_by_id(session["user_id"])
+    if not user or user.role != 'teacher':
+        return jsonify({"success": False, "error": "仅教师可访问"}), 403
+
+    posts = Post.query.filter_by(review_status='pending').order_by(Post.created_at.desc()).all()
+    result = []
+    for p in posts:
+        author = find_user_by_id(p.author_id)
+        result.append({
+            "id": p.id,
+            "title": p.title,
+            "content": p.content[:300] + "..." if len(p.content) > 300 else p.content,
+            "category": p.category,
+            "author_username": author.username if author else "未知用户",
+            "author_id": p.author_id,
+            "created_at": p.created_at
+        })
+
+    return jsonify({"success": True, "data": result, "count": len(result)})
+
 # 获取待审核帖子列表（仅教师）
 @app.route('/api/posts/pending', methods=['GET'])
 @login_required
 def get_pending_posts():
-    if not is_teacher(session["user_id"]):
-        return jsonify({"success": False, "error": "仅教师可查看待审核帖子"}), 403
-    
-    posts = Post.query.filter_by(review_status='pending').order_by(Post.id.desc()).all()
+    user = find_user_by_id(session["user_id"])
+    if not user or user.role != 'teacher':
+        return jsonify({"success": False, "error": "仅教师可访问"}), 403
+
+    posts = Post.query.filter_by(review_status='pending').order_by(Post.created_at.desc()).all()
     result = []
-    
     for p in posts:
         author = find_user_by_id(p.author_id)
         result.append({
@@ -1659,9 +1741,10 @@ def get_pending_posts():
             "content": p.content[:100] + "..." if len(p.content) > 100 else p.content,
             "category": p.category,
             "author": author.username if author else "未知用户",
-            "created_at": p.created_at
+            "author_id": p.author_id,
+            "created_at": p.created_at,
+            "created_at": p.created_at  # 确保返回创建时间字段
         })
-    
     return jsonify({"success": True, "data": result, "count": len(result)})
 
 # 帖子互动：点赞/收藏/转发/有用/打赏等
@@ -2034,24 +2117,27 @@ def get_detailed_profile():
     user = find_user_by_id(user_id)
     if not user:
         return jsonify({"success": False, "error": "用户不存在"}), 404
-    
-    # 返回所有个人资料字段
+
     profile_data = {
         "username": user.username,
         "email": user.email,
         "role": user.role,
-        "real_name": user.real_name,
-        "student_id": user.student_id,
-        "major": user.major,
-        "grade": user.grade,
-        "phone": user.phone,
-        "gender": user.gender,
-        "bio": user.bio,
+        "real_name": user.real_name or "未设置",
+        "student_id": user.student_id or "未设置",
+        "major": user.major or "未设置",
+        "grade": user.grade or "未设置",
+        "phone": user.phone or "未设置",
+        "gender": user.gender or "未设置",
+        "bio": user.bio or "暂无简介",
         "avatar": user.avatar,
         "created_at": user.created_at,
-        "user_id": user.id
+        "user_id": user.id,
+        "stats": {
+            "joined_activities": len(user.joined_activities),
+            "favorite_activities": len(user.favorite_activities),
+            "posts_count": Post.query.filter_by(author_id=user_id).count()
+        }
     }
-    
     return jsonify({"success": True, "data": profile_data})
 
 # 更新用户详细资料
@@ -3130,4 +3216,4 @@ def get_post_stats():
 # ---------------------------- 运行应用 ----------------------------
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='0.0.0.0', port=5001)
+    socketio.run(app, debug=True, host='0.0.0.0', port=5001,allow_unsafe_werkzeug=True)

@@ -137,13 +137,14 @@
             height: 100%;
             cursor: pointer;
         }
+        /* 教师专属元素默认隐藏，JS会根据角色显示 */
         .teacher-exclusive {
             display: none;
         }
     </style>
 </head>
 <body>
-    <!-- 导航栏：修复图标格式+规整布局，保留所有功能 -->
+    <!-- 导航栏 - 修复：确保帖子审核是可点击的链接 -->
     <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
         <div class="container">
             <a class="navbar-brand" href="/">
@@ -170,7 +171,7 @@
                             <i class="fas fa-user me-1"></i> 个人中心
                         </a>
                     </li>
-                    <!-- 教师专属导航：保留原有标识和路径，仅优化格式 -->
+                    <!-- 教师专属导航 - 修复：这是可点击的链接，会跳转到/teacher/review -->
                     <li class="nav-item teacher-exclusive" id="reviewNavItem">
                         <a class="nav-link" href="/teacher/review">
                             <i class="fas fa-gavel me-1"></i> 帖子审核
@@ -185,6 +186,7 @@
             </div>
         </div>
     </nav>
+
     <div class="container profile-container">
         <!-- 个人资料头部 -->
         <div class="profile-header">
@@ -204,22 +206,23 @@
                 <div class="col-md-9">
                     <div class="d-flex justify-content-between align-items-start">
                         <div>
-                            <h2 id="usernameDisplay" class="mb-1">用户</h2>
-                            <p class="mb-2" id="userEmail"></p>
+                            <h2 id="usernameDisplay" class="mb-1">{{ user.username }}</h2>
+                            <p class="mb-2" id="userEmail">{{ user.email }}</p>
                             <p class="mb-2" id="userInfo">
-                                <span id="userMajor"></span>
-                                <span id="userGrade" class="ms-2"></span>
+                                <span id="userMajor">专业/部门: {{ user.major or "未设置" }}</span>
+                                <span id="userGrade" class="ms-2">年级/职称: {{ user.grade or "未设置" }}</span>
                             </p>
-                            <p class="mb-0" id="userBio"></p>
+                            <p class="mb-0" id="userBio">{{ user.bio or "暂无简介" }}</p>
                         </div>
                         <div class="text-end">
-                            <span class="badge mb-2" id="userRoleBadge">普通用户</span>
-                            <p class="text-light mb-0"><small>注册时间: <span id="joinDate"></span></small></p>
+                            <span class="badge mb-2" id="userRoleBadge">{{ "教师" if user.role == "teacher" else "学生" }}</span>
+                            <p class="text-light mb-0"><small>注册时间: <span id="joinDate">{{ user.created_at }}</span></small></p>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
+
         <!-- 统计信息 -->
         <div class="row mb-4">
             <div class="col-md-3 mb-3">
@@ -261,8 +264,15 @@
                 </div>
             </div>
         </div>
-        <!-- 标签页 -->
+
+        <!-- 标签页 - 修复：帖子审核标签改为跳转链接 -->
         <ul class="nav nav-tabs mb-4" id="profileTab" role="tablist">
+            <!-- 教师专属标签页 - 修复：改为跳转链接 -->
+            <li class="nav-item teacher-exclusive" id="reviewTabItem" role="presentation">
+                <a class="nav-link" href="/teacher/review" id="review-tab">
+                    <i class="fas fa-gavel"></i> 帖子审核
+                </a>
+            </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="joined-tab" data-bs-toggle="tab" data-bs-target="#joined">
                     <i class="fas fa-calendar-check"></i> 我参与的活动
@@ -289,6 +299,7 @@
                 </button>
             </li>
         </ul>
+
         <!-- 标签页内容 -->
         <div class="tab-content" id="profileTabContent">
             <!-- 已参与活动 -->
@@ -303,6 +314,7 @@
                     <p class="mt-2">正在加载您的活动...</p>
                 </div>
             </div>
+
             <!-- 收藏的活动 -->
             <div class="tab-pane fade" id="favorites">
                 <div id="favoritesList" class="row">
@@ -320,11 +332,12 @@
                     <p class="mt-2">正在加载收藏的活动...</p>
                 </div>
             </div>
+
             <!-- 我的帖子 -->
             <div class="tab-pane fade" id="my-posts">
                 <div class="row mb-3">
                     <div class="col-12">
-                        <a href="/" class="btn btn-primary btn-sm">
+                        <a href="/create-post" class="btn btn-primary btn-sm">
                             <i class="fas fa-plus"></i> 发布新帖子
                         </a>
                     </div>
@@ -339,6 +352,7 @@
                     <p class="mt-2">正在加载我的帖子...</p>
                 </div>
             </div>
+
             <!-- 账户设置 -->
             <div class="tab-pane fade" id="settings">
                 <div class="row">
@@ -387,6 +401,7 @@
                     </div>
                 </div>
             </div>
+
             <!-- 个人详细资料 -->
             <div class="tab-pane fade" id="detailed">
                 <div class="row">
@@ -546,6 +561,7 @@
             </div>
         </div>
     </div>
+
     <!-- 修改密码模态框 -->
     <div class="modal fade" id="changePasswordModal" tabindex="-1">
         <div class="modal-dialog">
@@ -581,16 +597,70 @@
             </div>
         </div>
     </div>
+
     <!-- Bootstrap JS Bundle -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
     <script>
         // 全局变量
         let currentUserRole = 'student';
-        // 检查登录状态
+
+        // 页面加载完成后执行
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('个人中心页面加载完成，开始初始化...');
+
+            // 首先从Flask模板获取用户角色
+            const userRoleFromTemplate = "{{ user.role }}";
+            if (userRoleFromTemplate && userRoleFromTemplate !== '') {
+                console.log('从Flask模板获取角色:', userRoleFromTemplate);
+                currentUserRole = userRoleFromTemplate;
+                updateTeacherElements();
+            }
+
+            // 然后检查登录状态并加载用户数据
             checkLoginStatus();
             setupEventListeners();
         });
+
+        // 更新教师专属元素的显示状态
+        function updateTeacherElements() {
+            const teacherElements = document.querySelectorAll('.teacher-exclusive');
+            console.log('找到的教师专属元素数量:', teacherElements.length);
+
+            if (currentUserRole === 'teacher') {
+                console.log('用户是教师，显示审核按钮');
+                teacherElements.forEach(el => {
+                    el.style.display = 'block';
+                    console.log('显示元素:', el.id || el.className);
+                });
+
+                // 更新角色徽章
+                const roleBadge = document.getElementById('userRoleBadge');
+                if (roleBadge) {
+                    roleBadge.textContent = '教师';
+                    roleBadge.className = 'badge badge-teacher mb-2';
+                }
+
+                // 更新账户信息中的角色
+                const infoRole = document.getElementById('infoRole');
+                if (infoRole) {
+                    infoRole.textContent = '教师';
+                }
+            } else {
+                console.log('用户是学生，隐藏审核按钮');
+                teacherElements.forEach(el => {
+                    el.style.display = 'none';
+                });
+
+                // 更新角色徽章
+                const roleBadge = document.getElementById('userRoleBadge');
+                if (roleBadge) {
+                    roleBadge.textContent = '学生';
+                    roleBadge.className = 'badge badge-student mb-2';
+                }
+            }
+        }
+
         // 设置事件监听器
         function setupEventListeners() {
             // 个人简介字数统计
@@ -603,6 +673,7 @@
                     }
                 });
             }
+
             // 详细资料表单提交
             const detailedForm = document.getElementById('detailedProfileForm');
             if (detailedForm) {
@@ -618,10 +689,12 @@
                         email: document.getElementById('email').value,
                         bio: document.getElementById('bio').value
                     };
+
                     fetch('/api/user/profile/detailed', {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(data)
+                        body: JSON.stringify(data),
+                        credentials: 'include'
                     })
                     .then(response => response.json())
                     .then(result => {
@@ -657,16 +730,19 @@
                     });
                 });
             }
+
             // 个人资料表单提交（邮箱更新）
             const profileForm = document.getElementById('profileForm');
             if (profileForm) {
                 profileForm.addEventListener('submit', function(e) {
                     e.preventDefault();
                     const data = { email: document.getElementById('email').value };
+
                     fetch('/api/user/profile', {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(data)
+                        body: JSON.stringify(data),
+                        credentials: 'include'
                     })
                     .then(response => response.json())
                     .then(result => {
@@ -702,6 +778,7 @@
                     });
                 });
             }
+
             // 标签页切换事件 - 加载我的帖子
             const myPostsTab = document.getElementById('my-posts-tab');
             if (myPostsTab) {
@@ -709,122 +786,189 @@
                     loadMyPosts();
                 });
             }
+
+            // 防止教师审核链接被Bootstrap干扰
+            const teacherReviewLinks = document.querySelectorAll('a[href="/teacher/review"]');
+            teacherReviewLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    console.log('点击了帖子审核链接，准备跳转到:', this.href);
+                    // 不阻止默认行为，让链接正常工作
+                });
+            });
         }
+
         // 检查登录状态
         function checkLoginStatus() {
-            fetch('/api/current-user',{
+            console.log('检查登录状态...');
+
+            fetch('/api/current-user', {
                 credentials: 'include'
             })
-                .then(response => {
-                    if (response.status === 401) {
-                        window.location.href = '/login';
-                        return;
-                    }
-                    return response.json();
-                })
-                .then(result => {
-                    if (result.success) {
-                        currentUserRole = result.data.role || 'student';
-                        loadUserProfile();
-                        loadJoinedActivities();
-                        loadDetailedProfile();
-                        loadFavorites();
-                        checkAvatarStatus();
-                        // 显示教师专属功能
-                        if (currentUserRole === 'teacher') {
-                            document.getElementById('reviewNavItem').style.display = 'block';
-                        }
-                    }
-                })
-                .catch(error => {
-                    console.error('检查登录状态失败:', error);
+            .then(response => {
+                console.log('API响应状态:', response.status);
+                if (response.status === 401) {
+                    console.log('用户未登录，跳转到登录页');
                     window.location.href = '/login';
-                });
+                    return;
+                }
+                return response.json();
+            })
+            .then(result => {
+                console.log('当前用户API返回数据:', result);
+
+                if (result && result.id) {
+                    // 更新用户角色（如果API返回了角色）
+                    if (result.role) {
+                        currentUserRole = result.role;
+                        console.log('从API获取角色:', currentUserRole);
+                        updateTeacherElements();
+                    }
+
+                    // 更新用户名显示
+                    if (result.username) {
+                        document.getElementById('usernameDisplay').textContent = result.username;
+                        document.getElementById('infoUsername').textContent = result.username;
+                    }
+
+                    // 加载其他数据
+                    loadUserProfile();
+                    loadJoinedActivities();
+                    loadDetailedProfile();
+                    loadFavorites();
+                    checkAvatarStatus();
+                } else {
+                    console.error('API返回数据格式不正确:', result);
+                }
+            })
+            .catch(error => {
+                console.error('检查登录状态失败:', error);
+                // 不立即跳转，允许页面展示基本信息
+            });
         }
+
         // 加载用户基本资料
         function loadUserProfile() {
-            fetch('/api/user/profile',{
+            console.log('加载用户基本资料...');
+
+            fetch('/api/user/profile', {
                 credentials: 'include'
             })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        const data = result.data;
-                        updateBasicProfile(data);
-                    }
-                })
-                .catch(error => {
-                    console.error('加载用户资料失败:', error);
-                });
+            .then(response => response.json())
+            .then(result => {
+                console.log('用户资料API返回:', result);
+
+                if (result.success) {
+                    const data = result.data;
+                    updateBasicProfile(data);
+                }
+            })
+            .catch(error => {
+                console.error('加载用户资料失败:', error);
+            });
         }
+
         // 加载用户详细资料
         function loadDetailedProfile() {
-            fetch('/api/user/profile/detailed',{
+            fetch('/api/user/profile/detailed', {
                 credentials: 'include'
             })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        const data = result.data;
-                        updateDetailedProfile(data);
-                        updateProfileCompletion(data);
-                    } else {
-                        console.error('加载详细资料失败:', result.error);
-                    }
-                })
-                .catch(error => {
-                    console.error('获取详细资料失败:', error);
-                });
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    const data = result.data;
+                    updateDetailedProfile(data);
+                    updateProfileCompletion(data);
+                } else {
+                    console.error('加载详细资料失败:', result.error);
+                }
+            })
+            .catch(error => {
+                console.error('获取详细资料失败:', error);
+            });
         }
+
         // 加载我的帖子
         function loadMyPosts() {
             const loadingElement = document.getElementById('postsLoading');
-            loadingElement.style.display = 'block';
-            fetch('/api/posts',{
+            if (loadingElement) loadingElement.style.display = 'block';
+
+            fetch('/api/posts', {
                 credentials: 'include'
             })
-                .then(response => response.json())
-                .then(result => {
-                    loadingElement.style.display = 'none';
-                    if (result.success) {
-                        const myPosts = result.data.filter(post => post.author_id === sessionStorage.getItem('user_id'));
+            .then(response => response.json())
+            .then(result => {
+                if (loadingElement) loadingElement.style.display = 'none';
+
+                if (result.success) {
+                    // 获取当前用户ID
+                    const currentUserId = sessionStorage.getItem('user_id');
+                    if (currentUserId) {
+                        const myPosts = result.data.filter(post => post.author_id === currentUserId);
                         displayMyPosts(myPosts);
+                    } else {
+                        // 如果没有用户ID，显示提示
+                        const container = document.getElementById('myPostsList');
+                        if (container) {
+                            container.innerHTML = `
+                                <div class="col-12">
+                                    <div class="alert alert-warning">
+                                        <i class="fas fa-info-circle"></i>
+                                        无法获取用户信息，请刷新页面
+                                    </div>
+                                </div>
+                            `;
+                        }
                     }
-                })
-                .catch(error => {
-                    console.error('加载我的帖子失败:', error);
+                }
+            })
+            .catch(error => {
+                console.error('加载我的帖子失败:', error);
+                if (loadingElement) {
                     loadingElement.innerHTML = '<p class="text-danger">加载失败，请刷新页面重试</p>';
-                });
+                }
+            });
         }
+
         // 更新基本资料显示
         function updateBasicProfile(data) {
+            console.log('更新基本资料:', data);
+
             // 存储用户ID到sessionStorage
-            sessionStorage.setItem('user_id', data.user_id || session['user_id']);
-            document.getElementById('usernameDisplay').textContent = data.username;
-            document.getElementById('userEmail').textContent = data.email || '未设置';
-            document.getElementById('email').value = data.email || '';
-            document.getElementById('joinDate').textContent = data.created_at || '';
-            document.getElementById('joinDateSettings').value = data.created_at || '';
-            document.getElementById('joinedCount').textContent = data.stats?.activities_joined || 0;
-            document.getElementById('totalActivities').textContent = data.stats?.total_activities || 0;
-            document.getElementById('favoritesCount').textContent = data.stats?.favorites_count || 0;
-            // 显示身份徽章
-            const roleBadge = document.getElementById('userRoleBadge');
-            if (currentUserRole === 'teacher') {
-                roleBadge.className = 'badge badge-teacher mb-2';
-                roleBadge.textContent = '教师身份';
-            } else {
-                roleBadge.className = 'badge badge-student mb-2';
-                roleBadge.textContent = '学生身份';
+            if (data.user_id) {
+                sessionStorage.setItem('user_id', data.user_id);
             }
-            // 计算注册天数
+
+            // 更新页面元素
+            if (data.username) {
+                document.getElementById('usernameDisplay').textContent = data.username;
+                document.getElementById('infoUsername').textContent = data.username;
+            }
+
+            if (data.email) {
+                document.getElementById('userEmail').textContent = data.email;
+                document.getElementById('email').value = data.email;
+                document.getElementById('infoEmail').textContent = data.email;
+            }
+
             if (data.created_at) {
+                document.getElementById('joinDate').textContent = data.created_at;
+                document.getElementById('joinDateSettings').value = data.created_at;
+                document.getElementById('infoCreatedAt').textContent = data.created_at;
+
+                // 计算注册天数
                 const createdDate = new Date(data.created_at);
                 const today = new Date();
                 const diffTime = Math.abs(today - createdDate);
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                 document.getElementById('accountDays').textContent = diffDays;
             }
+
+            if (data.stats) {
+                document.getElementById('joinedCount').textContent = data.stats.activities_joined || 0;
+                document.getElementById('totalActivities').textContent = data.stats.total_activities || 0;
+                document.getElementById('favoritesCount').textContent = data.stats.favorites_count || 0;
+            }
+
             // 更新头像
             if (data.avatar) {
                 document.getElementById('avatarPreview').src = data.avatar;
@@ -832,9 +976,17 @@
                 document.getElementById('avatarIcon').style.display = 'none';
                 document.getElementById('avatarPreviewDetailed').src = data.avatar;
             }
+
+            // 更新用户ID显示
+            if (data.user_id) {
+                document.getElementById('infoUserId').textContent = data.user_id;
+            }
         }
+
         // 更新详细资料显示
         function updateDetailedProfile(data) {
+            console.log('更新详细资料:', data);
+
             // 填充表单数据
             document.getElementById('real_name').value = data.real_name || '';
             document.getElementById('student_id').value = data.student_id || '';
@@ -845,16 +997,31 @@
             document.getElementById('email').value = data.email || '';
             document.getElementById('bio').value = data.bio || '';
             document.getElementById('bioCount').textContent = (data.bio || '').length;
+
             // 更新账户信息
             document.getElementById('infoUsername').textContent = data.username || '';
             document.getElementById('infoUserId').textContent = data.user_id || '';
-            document.getElementById('infoRole').textContent = currentUserRole === 'teacher' ? '教师' : '学生';
+
+            // 更新角色显示
+            const roleElement = document.getElementById('infoRole');
+            if (roleElement) {
+                roleElement.textContent = currentUserRole === 'teacher' ? '教师' : '学生';
+            }
+
             document.getElementById('infoEmail').textContent = data.email || '';
             document.getElementById('infoCreatedAt').textContent = data.created_at || '';
+
             // 更新顶部信息
-            document.getElementById('userMajor').textContent = data.major ? `专业/部门: ${data.major}` : '';
-            document.getElementById('userGrade').textContent = data.grade ? `年级/职称: ${data.grade}` : '';
-            document.getElementById('userBio').textContent = data.bio || '暂无简介';
+            if (data.major) {
+                document.getElementById('userMajor').textContent = `专业/部门: ${data.major}`;
+            }
+            if (data.grade) {
+                document.getElementById('userGrade').textContent = `年级/职称: ${data.grade}`;
+            }
+            if (data.bio) {
+                document.getElementById('userBio').textContent = data.bio;
+            }
+
             // 更新头像
             if (data.avatar && data.avatar !== '/static/images/default.jpg') {
                 document.getElementById('avatarPreview').src = data.avatar;
@@ -863,6 +1030,7 @@
                 document.getElementById('avatarPreviewDetailed').src = data.avatar;
             }
         }
+
         // 更新资料完整度
         function updateProfileCompletion(profile) {
             const checklist = [
@@ -873,15 +1041,21 @@
                 { field: 'bio', text: '个人简介', weight: 15 },
                 { field: 'avatar', text: '个人头像', weight: 10 }
             ];
+
             let totalScore = 0;
             let maxScore = 100;
             const container = document.getElementById('profileChecklist');
+
             if (!container) return;
+
             container.innerHTML = '';
+
             checklist.forEach(item => {
                 const isCompleted = profile[item.field] &&
                     (item.field === 'avatar' ? profile[item.field] !== '/static/images/default.jpg' : profile[item.field].trim() !== '');
+
                 if (isCompleted) totalScore += item.weight;
+
                 const itemDiv = document.createElement('div');
                 itemDiv.className = `completion-item ${isCompleted ? 'completed' : ''}`;
                 itemDiv.innerHTML = `
@@ -896,63 +1070,70 @@
                 `;
                 container.appendChild(itemDiv);
             });
+
             // 更新进度条和百分比
             const percentage = Math.round((totalScore / maxScore) * 100);
             const completionElement = document.getElementById('profileCompletion');
             const completionBar = document.getElementById('completionBar');
+
             if (completionElement) completionElement.textContent = `${percentage}%`;
             if (completionBar) {
                 completionBar.style.width = `${percentage}%`;
                 completionBar.className = `progress-bar ${percentage >= 80 ? 'bg-success' : percentage >= 50 ? 'bg-warning' : 'bg-danger'}`;
             }
         }
+
         // 加载已参与活动
         function loadJoinedActivities() {
-            fetch('/api/user/joined-activities',{
+            fetch('/api/user/joined-activities', {
                 credentials: 'include'
             })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        displayJoinedActivities(result.data);
-                        const loadingElement = document.getElementById('joinedLoading');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    }
-                })
-                .catch(error => {
-                    console.error('加载已参与活动失败:', error);
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    displayJoinedActivities(result.data);
                     const loadingElement = document.getElementById('joinedLoading');
-                    if (loadingElement) {
-                        loadingElement.innerHTML = '<p class="text-danger">加载失败，请刷新页面重试</p>';
-                    }
-                });
+                    if (loadingElement) loadingElement.style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('加载已参与活动失败:', error);
+                const loadingElement = document.getElementById('joinedLoading');
+                if (loadingElement) {
+                    loadingElement.innerHTML = '<p class="text-danger">加载失败，请刷新页面重试</p>';
+                }
+            });
         }
+
         // 加载收藏活动
         function loadFavorites() {
-            fetch('/api/user/favorites',{
+            fetch('/api/user/favorites', {
                 credentials: 'include'
             })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        displayFavorites(result.data);
-                        const loadingElement = document.getElementById('favoritesLoading');
-                        if (loadingElement) loadingElement.style.display = 'none';
-                    }
-                })
-                .catch(error => {
-                    console.error('加载收藏活动失败:', error);
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    displayFavorites(result.data);
                     const loadingElement = document.getElementById('favoritesLoading');
-                    if (loadingElement) {
-                        loadingElement.innerHTML = '<p class="text-danger">加载失败，请刷新页面重试</p>';
-                    }
-                });
+                    if (loadingElement) loadingElement.style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('加载收藏活动失败:', error);
+                const loadingElement = document.getElementById('favoritesLoading');
+                if (loadingElement) {
+                    loadingElement.innerHTML = '<p class="text-danger">加载失败，请刷新页面重试</p>';
+                }
+            });
         }
+
         // 显示已参与活动
-            function displayJoinedActivities(activities) {
+        function displayJoinedActivities(activities) {
             const container = document.getElementById('joinedActivitiesList');
             if (!container) return;
+
             container.innerHTML = '';
+
             if (activities.length === 0) {
                 container.innerHTML = `
                     <div class="col-12">
@@ -965,10 +1146,12 @@
                 `;
                 return;
             }
+
             activities.forEach(activity => {
-                var participantCount = (typeof activity.participant_count === 'number')
+                const participantCount = (typeof activity.participant_count === 'number')
                     ? activity.participant_count
                     : (activity.participants ? activity.participants.length : 0);
+
                 const card = `
                     <div class="col-md-6 mb-3">
                         <div class="card activity-card">
@@ -996,10 +1179,12 @@
                 container.innerHTML += card;
             });
         }
+
         // 显示收藏活动
-            function displayFavorites(activities) {
+        function displayFavorites(activities) {
             const container = document.getElementById('favoritesList');
             if (!container) return;
+
             if (activities.length === 0) {
                 container.innerHTML = `
                     <div class="col-12">
@@ -1012,11 +1197,14 @@
                 `;
                 return;
             }
+
             container.innerHTML = '';
+
             activities.forEach(activity => {
-                var participantCount = (typeof activity.participant_count === 'number')
+                const participantCount = (typeof activity.participant_count === 'number')
                     ? activity.participant_count
                     : (activity.participants ? activity.participants.length : 0);
+
                 const card = `
                     <div class="col-md-6 mb-3">
                         <div class="card activity-card">
@@ -1044,23 +1232,27 @@
                 container.innerHTML += card;
             });
         }
+
         // 显示我的帖子
         function displayMyPosts(posts) {
             const container = document.getElementById('myPostsList');
             if (!container) return;
+
             container.innerHTML = '';
+
             if (posts.length === 0) {
                 container.innerHTML = `
                     <div class="col-12">
                         <div class="alert alert-warning">
                             <i class="fas fa-info-circle"></i>
                             您还没有发布任何帖子
-                            <a href="/" class="btn btn-sm btn-outline-primary ms-2">去发布帖子</a>
+                            <a href="/create-post" class="btn btn-sm btn-outline-primary ms-2">去发布帖子</a>
                         </div>
                     </div>
                 `;
                 return;
             }
+
             posts.forEach(post => {
                 let statusBadge = '';
                 if (post.review_status === 'pending') {
@@ -1070,6 +1262,7 @@
                 } else {
                     statusBadge = '<span class="badge bg-danger ms-2">已驳回</span>';
                 }
+
                 const card = `
                     <div class="col-md-6 mb-3">
                         <div class="card activity-card">
@@ -1097,76 +1290,95 @@
                 container.innerHTML += card;
             });
         }
+
         // 取消报名
         function leaveActivity(activityId) {
             if (!confirm('确定要取消报名吗？')) return;
-            fetch(`/api/activities/${activityId}/leave`, { method: 'POST', credentials: 'include' })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        alert(result.message);
-                        loadJoinedActivities();
-                        loadUserProfile(); // 刷新统计数据
-                    } else {
-                        alert(result.error);
-                    }
-                })
-                .catch(error => {
-                    console.error('取消报名失败:', error);
-                    alert('操作失败，请重试');
-                });
+
+            fetch(`/api/activities/${activityId}/leave`, {
+                method: 'POST',
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert(result.message);
+                    loadJoinedActivities();
+                    loadUserProfile(); // 刷新统计数据
+                } else {
+                    alert(result.error);
+                }
+            })
+            .catch(error => {
+                console.error('取消报名失败:', error);
+                alert('操作失败，请重试');
+            });
         }
+
         // 取消收藏
         function unfavoriteActivity(activityId) {
             if (!confirm('确定要取消收藏吗？')) return;
-            fetch(`/api/activities/${activityId}/favorite`, { method: 'POST', credentials: 'include' })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        alert(result.message);
-                        loadFavorites();
-                        loadUserProfile(); // 刷新统计数据
-                    } else {
-                        alert(result.error);
-                    }
-                })
-                .catch(error => {
-                    console.error('取消收藏失败:', error);
-                    alert('操作失败，请重试');
-                });
+
+            fetch(`/api/activities/${activityId}/favorite`, {
+                method: 'POST',
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert(result.message);
+                    loadFavorites();
+                    loadUserProfile(); // 刷新统计数据
+                } else {
+                    alert(result.error);
+                }
+            })
+            .catch(error => {
+                console.error('取消收藏失败:', error);
+                alert('操作失败，请重试');
+            });
         }
+
         // 删除我的帖子
         function deleteMyPost(postId) {
             if (!confirm('确定要删除该帖子吗？删除后不可恢复！')) return;
-            fetch(`/api/posts/${postId}`, { method: 'DELETE' },{credentials: 'include'})
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        alert(result.message);
-                        loadMyPosts();
-                    } else {
-                        alert(result.error);
-                    }
-                })
-                .catch(error => {
-                    console.error('删除帖子失败:', error);
-                    alert('操作失败，请重试');
-                });
+
+            fetch(`/api/posts/${postId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    alert(result.message);
+                    loadMyPosts();
+                } else {
+                    alert(result.error);
+                }
+            })
+            .catch(error => {
+                console.error('删除帖子失败:', error);
+                alert('操作失败，请重试');
+            });
         }
+
         // 头像预览
         function previewAvatar(input) {
             if (input.files && input.files[0]) {
                 const file = input.files[0];
+
                 // 检查文件大小（2MB限制）
                 if (file.size > 2 * 1024 * 1024) {
                     alert('文件太大，请选择小于2MB的图片');
                     return;
                 }
+
                 // 检查文件类型
                 if (!file.type.match('image.*')) {
                     alert('请选择图片文件（JPG/PNG格式）');
                     return;
                 }
+
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     document.getElementById('avatarPreview').src = e.target.result;
@@ -1177,33 +1389,39 @@
                 reader.readAsDataURL(file);
             }
         }
+
         // 检查头像状态
         function checkAvatarStatus() {
-            fetch('/api/user/avatar',{credentials: 'include'})
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success && result.data.has_custom_avatar) {
-                        // 如果有自定义头像，更新所有头像显示
-                        const avatarUrl = result.data.avatar_url;
-                        document.getElementById('avatarPreview').src = avatarUrl;
-                        document.getElementById('avatarPreviewDetailed').src = avatarUrl;
-                        document.getElementById('avatarPreview').style.display = 'block';
-                        document.getElementById('avatarIcon').style.display = 'none';
-                    }
-                })
-                .catch(error => {
-                    console.error('检查头像状态失败:', error);
-                });
+            fetch('/api/user/avatar-info', {
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success && result.data.has_custom_avatar) {
+                    // 如果有自定义头像，更新所有头像显示
+                    const avatarUrl = result.data.avatar_url;
+                    document.getElementById('avatarPreview').src = avatarUrl;
+                    document.getElementById('avatarPreviewDetailed').src = avatarUrl;
+                    document.getElementById('avatarPreview').style.display = 'block';
+                    document.getElementById('avatarIcon').style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('检查头像状态失败:', error);
+            });
         }
-        // 上传头像（完整实现）
+
+        // 上传头像
         function uploadAvatar() {
             const fileInput = document.getElementById('avatarUploadBtn');
             if (!fileInput.files[0]) {
                 alert('请先选择图片文件');
                 return;
             }
+
             const formData = new FormData();
             formData.append('avatar', fileInput.files[0]);
+
             // 显示上传中状态
             const messageDiv = document.getElementById('avatarMessage');
             messageDiv.innerHTML = `
@@ -1214,10 +1432,10 @@
                     正在上传头像...
                 </div>
             `;
+
             fetch('/api/user/avatar', {
                 method: 'POST',
                 body: formData,
-                // 注意：不要设置 Content-Type header，浏览器会自动设置 multipart/form-data
                 credentials: 'include'
             })
             .then(response => response.json())
@@ -1228,6 +1446,7 @@
                             <i class="fas fa-check-circle"></i> ${result.message}
                         </div>
                     `;
+
                     // 更新所有头像预览
                     if (result.data && result.data.avatar_url) {
                         const avatarUrl = result.data.avatar_url;
@@ -1236,6 +1455,7 @@
                         document.getElementById('avatarPreviewDetailed').src = avatarUrl;
                         document.getElementById('avatarPreview').style.display = 'block';
                         document.getElementById('avatarIcon').style.display = 'none';
+
                         // 重新加载用户资料以更新显示
                         loadUserProfile();
                         loadDetailedProfile();
@@ -1247,6 +1467,7 @@
                         </div>
                     `;
                 }
+
                 // 3秒后清除消息
                 setTimeout(() => {
                     if (messageDiv) messageDiv.innerHTML = '';
@@ -1261,37 +1482,43 @@
                 `;
             });
         }
+
         // 修改密码功能
         function updatePassword() {
             const currentPassword = document.getElementById('currentPassword').value;
             const newPassword = document.getElementById('newPassword').value;
             const confirmPassword = document.getElementById('confirmPassword').value;
+
             if (!currentPassword || !newPassword || !confirmPassword) {
                 document.getElementById('passwordMessage').innerHTML = `
                     <div class="alert alert-danger">请填写所有字段</div>
                 `;
                 return;
             }
+
             if (newPassword !== confirmPassword) {
                 document.getElementById('passwordMessage').innerHTML = `
                     <div class="alert alert-danger">两次输入的新密码不一致</div>
                 `;
                 return;
             }
+
             if (newPassword.length < 8) {
                 document.getElementById('passwordMessage').innerHTML = `
                     <div class="alert alert-danger">密码长度至少8位</div>
                 `;
                 return;
             }
+
             // 调用后端API修改密码
-            fetch('/api/user/change-password', {credentials: 'include'},{
+            fetch('/api/user/change-password', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     current_password: currentPassword,
                     new_password: newPassword
-                })
+                }),
+                credentials: 'include'
             })
             .then(response => response.json())
             .then(result => {
@@ -1301,10 +1528,12 @@
                             <i class="fas fa-check-circle"></i> ${result.message}
                         </div>
                     `;
+
                     // 清空表单
                     document.getElementById('currentPassword').value = '';
                     document.getElementById('newPassword').value = '';
                     document.getElementById('confirmPassword').value = '';
+
                     // 3秒后关闭模态框
                     setTimeout(() => {
                         const modalElement = document.getElementById('changePasswordModal');
@@ -1330,16 +1559,36 @@
                 `;
             });
         }
+
         // 登出功能
         function logout() {
-            fetch('/api/logout', { method: 'POST' },{credentials: 'include'})
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        sessionStorage.removeItem('user_id');
-                        window.location.href = '/login';
-                    }
-                });
+            if (!confirm('确定要退出登录吗？')) return;
+
+            fetch('/api/logout', {
+                method: 'POST',
+                credentials: 'include'
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    sessionStorage.removeItem('user_id');
+                    window.location.href = '/login';
+                }
+            })
+            .catch(error => {
+                console.error('登出失败:', error);
+                window.location.href = '/login';
+            });
+        }
+
+        // 专门处理教师审核页面跳转
+        function goToTeacherReview() {
+            console.log('跳转到教师审核页面');
+            if (currentUserRole === 'teacher') {
+                window.location.href = '/teacher/review';
+            } else {
+                alert('只有教师才能访问帖子审核页面');
+            }
         }
     </script>
 </body>
