@@ -1,13 +1,18 @@
 // 页面加载时检查登录状态
 document.addEventListener('DOMContentLoaded', function() {
+    // 优化加载顺序，先检查登录状态
     checkLoginStatus();
+    // 然后初始化UI组件
     setupEventListeners();
     initPostsUI();
     initActivityForm();
+    // 添加页面加载完成提示
+    console.log('页面加载完成，所有功能已初始化');
 });
 
 // 全局变量
 let currentSearchType = 'all';
+let currentPostType = 'all';
 
 // 检查登录状态
 function checkLoginStatus() {
@@ -82,46 +87,122 @@ function displayActivities(activities) {
         return;
     }
 
+    // 获取活动类型图标
+    function getActivityTypeIcon(type) {
+        switch (type) {
+            case '学术':
+                return 'fa-graduation-cap';
+            case '体育':
+                return 'fa-futbol';
+            case '艺术':
+                return 'fa-palette';
+            case '其他':
+                return 'fa-calendar-alt';
+            default:
+                return 'fa-calendar-alt';
+        }
+    }
+
+    // 检查活动状态
+    function getActivityStatus(time) {
+        const activityTime = new Date(time);
+        const now = new Date();
+        if (activityTime > now) {
+            return { text: '即将开始', class: 'bg-success' };
+        } else {
+            return { text: '已结束', class: 'bg-secondary' };
+        }
+    }
+
+    // 优化：使用文档片段减少DOM操作
+    const fragment = document.createDocumentFragment();
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'row';
+
     // 循环渲染活动卡片
     activities.forEach(activity => {
         const isFavorited = !!activity.is_favorited;
-        const starClass = isFavorited ? 'fa-solid fa-star text-warning' : 'fa-regular fa-star text-warning';
-        const card = `
-            <div class="col-md-4">
-                <div class="card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">${activity.title}</h5>
-                        <p class="card-text">
-                            <span class="badge bg-secondary">${activity.type}</span>
-                        </p>
-                        <p class="card-text small">
-                            🕒 时间：${activity.time}<br>
-                            📍 地点：${activity.location}
-                        </p>
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-primary flex-1" onclick="joinActivity(${activity.id})">
-                                我要参加
-                            </button>
-                            <button class="btn btn-outline-warning flex-1" onclick="favoriteActivity(${activity.id})" aria-label="收藏活动">
-                                <i class="${starClass}"></i>
-                            </button>
-                        </div>
+        const starClass = isFavorited ? 'fa-solid fa-star text-warning' : 'far fa-star text-warning';
+        const typeIcon = getActivityTypeIcon(activity.type);
+        const status = getActivityStatus(activity.time);
+        
+        const cardCol = document.createElement('div');
+        cardCol.className = 'col-md-4';
+        cardCol.innerHTML = `
+            <div class="card h-100 shadow-sm hover-shadow transition-all duration-300">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h5 class="card-title mb-0">${activity.title}</h5>
+                        <span class="badge ${status.class}">${status.text}</span>
                     </div>
-                    <div class="card-footer text-muted">
-                        参与人数：${activity.participants_count || 0}人
+                    <div class="mb-3">
+                        <span class="badge bg-secondary d-flex align-items-center">
+                            <i class="fas ${typeIcon} mr-1"></i> ${activity.type}
+                        </span>
+                    </div>
+                    <p class="card-text small mb-4">
+                        <i class="far fa-clock mr-1"></i> 时间：${activity.time}<br>
+                        <i class="far fa-map-marker-alt mr-1"></i> 地点：${activity.location}
+                    </p>
+                    <div class="d-flex gap-2 mb-3">
+                        <button class="btn btn-primary flex-1" onclick="showActivityDetail(${activity.id})"><i class="far fa-eye mr-1"></i>查看详情</button>
+                        <button class="btn btn-outline-warning" onclick="favoriteActivity(${activity.id})" aria-label="收藏活动"><i class="${starClass}"></i></button>
+                    </div>
+                    <button class="btn btn-success w-100" onclick="joinActivity(${activity.id})"><i class="fas fa-user-plus mr-1"></i>我要参加</button>
+                </div>
+                <div class="card-footer text-muted bg-light">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span>参与人数：${activity.participants_count || 0}人</span>
+                        ${activity.tags ? `<span class="text-xs">标签：${activity.tags}</span>` : ''}
                     </div>
                 </div>
             </div>
         `;
-        container.innerHTML += card;
+        rowDiv.appendChild(cardCol);
     });
+
+    fragment.appendChild(rowDiv);
+    container.appendChild(fragment);
+
+    // 添加渲染完成提示
+    console.log(`已渲染 ${activities.length} 个活动`);
 }
 
 // 按类型筛选活动
 function filterActivities(type) {
     currentSearchType = type;
+    // 重置筛选按钮样式
+    const activityBtnGroup = document.getElementById('activityTypeButtons');
+    if (activityBtnGroup) {
+        document.querySelectorAll('#activityTypeButtons .btn').forEach(btn => {
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-outline-primary');
+            if (btn.textContent.trim() === type || (type === 'all' && btn.textContent.trim() === '全部')) {
+                btn.classList.remove('btn-outline-primary');
+                btn.classList.add('btn-primary');
+            }
+        });
+    }
+    
+    // 显示加载状态
+    const container = document.getElementById('activity-list');
+    container.innerHTML = `
+        <div class="col-12 text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+            <p class="mt-3">正在加载活动数据...</p>
+        </div>
+    `;
+    
+    // 加载筛选后的活动
     fetch('/api/activities')
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('网络请求失败');
+            }
+            return response.json();
+        })
         .then(data => {
             const allActivities = data.success ? data.data : [];
             let filtered = allActivities;
@@ -131,13 +212,20 @@ function filterActivities(type) {
             }
 
             displayActivities(filtered);
+        })
+        .catch(error => {
+            console.error('获取活动数据失败:', error);
+            const container = document.getElementById('activity-list');
+            container.innerHTML = `
+                <div class="col-12 error">
+                    <p>❌ 加载失败，请刷新页面重试</p>
+                </div>
+            `;
         });
 }
 
 // 搜索活动
 function searchActivities() {
-    applyAdvancedFilters();
-}
     const keyword = document.getElementById('searchInput').value.trim();
 
     if (!keyword) {
@@ -178,6 +266,7 @@ function searchActivities() {
                         </div>
                     `;
                 } else {
+                    // 直接替换原有结果，不追加
                     container.innerHTML = `
                         <div class="col-12 mb-3">
                             <div class="alert alert-success d-flex justify-content-between align-items-center">
@@ -223,6 +312,125 @@ function clearSearch() {
     loadActivities();
 }
 
+// 按类型筛选帖子
+function filterPosts(type) {
+    currentPostType = type;
+    // 重置筛选按钮样式
+    const postBtnGroup = document.getElementById('postTypeButtons');
+    if (postBtnGroup) {
+        document.querySelectorAll('#postTypeButtons .btn').forEach(btn => {
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-outline-primary');
+            if (btn.textContent.trim() === type || (type === 'all' && btn.textContent.trim() === '全部')) {
+                btn.classList.remove('btn-outline-primary');
+                btn.classList.add('btn-primary');
+            }
+        });
+    }
+    // 加载筛选后的帖子
+    loadPostsList(type === 'all' ? null : type);
+}
+
+// 搜索帖子
+function searchPosts() {
+    const keyword = document.getElementById('postSearchInput').value.trim();
+    
+    if (!keyword) {
+        loadPostsList(currentPostType === 'all' ? null : currentPostType);
+        return;
+    }
+    
+    // 显示搜索中状态
+    const postsList = document.getElementById('postsList');
+    postsList.innerHTML = `
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">搜索中...</span>
+            </div>
+            <p class="mt-3">正在搜索"${keyword}"...</p>
+        </div>
+    `;
+    
+    // 调用后端搜索API
+    fetch(`/api/posts/search?keyword=${encodeURIComponent(keyword)}&category=${encodeURIComponent(currentPostType)}&sort_by=newest`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('搜索请求失败');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                const totalCount = data.pagination ? data.pagination.total : data.data.length;
+                if (!data.data || data.data.length === 0) {
+                    postsList.innerHTML = `
+                        <div class="text-center py-5">
+                            <div class="alert alert-info">
+                                <i class="fas fa-search"></i> 没有找到"${keyword}"相关的帖子
+                                <button class="btn btn-sm btn-outline-primary ms-3" onclick="loadPostsList(currentPostType === 'all' ? null : currentPostType)">
+                                    显示所有帖子
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // 添加搜索结果数量统计
+                    postsList.innerHTML = `
+                        <div class="mb-3">
+                            <div class="alert alert-success d-flex justify-content-between align-items-center">
+                                <span>
+                                    <i class="fas fa-check-circle"></i> 找到 ${totalCount} 个与"${keyword}"相关的帖子
+                                </span>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="clearPostFilters()">
+                                    清除搜索
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    data.data.forEach(p => {
+                        const item = document.createElement('a');
+                        item.className = 'list-group-item list-group-item-action';
+                        item.href = 'javascript:void(0);';
+                        const badge = p.is_official ? '<span class="badge bg-danger ms-2">官方</span>' : '';
+                        item.innerHTML = `<div class="d-flex justify-content-between"><div><strong>${escapeHtml(p.title)}</strong> ${badge}<div class="small text-muted">${escapeHtml(p.category)} · ${escapeHtml(p.created_at)}</div></div></div><div class="mt-2">${escapeHtml(p.content || '')}</div>`;
+                        item.addEventListener('click', function() { showPost(p.id); });
+                        postsList.appendChild(item);
+                    });
+                }
+            } else {
+                postsList.innerHTML = `
+                    <div class="text-center py-5">
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle"></i> 搜索失败：${data.error || '未知错误'}
+                        </div>
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('搜索帖子失败:', error);
+            postsList.innerHTML = `
+                <div class="text-center py-5">
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle"></i> 搜索失败，请刷新页面重试
+                    </div>
+                </div>
+            `;
+        });
+}
+
+// 清除帖子筛选
+function clearPostFilters() {
+    document.getElementById('postSearchInput').value = '';
+    filterPosts('all');
+}
+
+// 应用帖子筛选
+function applyPostFilters() {
+    // 根据当前选中的帖子类型筛选帖子
+    loadPostsList(currentPostType === 'all' ? null : currentPostType);
+}
+
 // 报名活动
 function joinActivity(activityId) {
     fetch(`/api/activities/${activityId}/join`, {
@@ -254,6 +462,7 @@ function favoriteActivity(activityId) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            alert('收藏成功！');
             loadActivities(); // 刷新列表以同步星星点亮状态
         } else {
             alert(data.error || '操作失败，请重试');
@@ -262,6 +471,142 @@ function favoriteActivity(activityId) {
     .catch(error => {
         console.error('收藏请求失败:', error);
         alert('操作失败，请重试');
+    });
+}
+
+// 显示活动详情
+function showActivityDetail(activityId) {
+    // 显示加载状态
+    document.getElementById('activityDetailBody').innerHTML = `
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+            <p class="mt-2">加载中，请稍候...</p>
+        </div>
+    `;
+
+    // 调用API获取活动详情
+    fetch(`/api/activities/${activityId}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('网络请求失败');
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            const activity = data.data;
+            
+            // 填充活动详情
+            document.getElementById('activityDetailTitle').textContent = activity.title;
+            document.getElementById('activityDetailBody').innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <h6><i class="fas fa-info-circle mr-2"></i>活动信息</h6>
+                            <ul class="list-unstyled">
+                                <li><strong>活动类型：</strong>${activity.type}</li>
+                                <li><strong>活动时间：</strong>${activity.time}</li>
+                                <li><strong>活动地点：</strong>${activity.location}</li>
+                                <li><strong>发起人：</strong>${activity.initiator_name || '未知'}</li>
+                                <li><strong>参与人数：</strong>${activity.participants_count || 0}人</li>
+                                <li><strong>发布时间：</strong>${activity.created_at}</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <h6><i class="fas fa-tags mr-2"></i>活动标签</h6>
+                            <div class="flex flex-wrap">
+                                ${activity.tags ? activity.tags.split(',').map(tag => `<span class="badge bg-secondary mr-1 mb-1">${tag.trim()}</span>`).join('') : '<span class="text-muted">无标签</span>'}
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <h6><i class="fas fa-star mr-2"></i>收藏状态</h6>
+                            <p>${activity.is_favorited ? '<span class="text-success"><i class="fas fa-star text-warning mr-1"></i>已收藏</span>' : '<span class="text-muted"><i class="far fa-star mr-1"></i>未收藏</span>'}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <h6><i class="fas fa-file-alt mr-2"></i>活动描述</h6>
+                    <div class="bg-light p-3 rounded">
+                        ${activity.description || '<p class="text-muted">暂无描述</p>'}
+                    </div>
+                </div>
+            `;
+            
+            // 设置报名按钮的点击事件
+            document.getElementById('joinActivityBtn').onclick = function() {
+                document.getElementById('joinActivityId').value = activityId;
+                const joinModal = new bootstrap.Modal(document.getElementById('joinActivityModal'));
+                joinModal.show();
+            };
+            
+            // 显示活动详情模态框
+            const detailModal = new bootstrap.Modal(document.getElementById('activityDetailModal'));
+            detailModal.show();
+        } else {
+            document.getElementById('activityDetailBody').innerHTML = `<div class="alert alert-danger">获取活动详情失败：${data.error}</div>`;
+        }
+    })
+    .catch(error => {
+        console.error('获取活动详情失败:', error);
+        document.getElementById('activityDetailBody').innerHTML = `<div class="alert alert-danger">网络错误，请重试</div>`;
+    });
+}
+
+// 提交报名表单
+function submitJoinActivityForm() {
+    const activityId = document.getElementById('joinActivityId').value;
+    const name = document.getElementById('participantName').value;
+    const phone = document.getElementById('participantPhone').value;
+    const email = document.getElementById('participantEmail').value;
+    const message = document.getElementById('participantMessage').value;
+    
+    // 验证表单
+    if (!name || !phone || !email) {
+        alert('请填写完整的报名信息');
+        return;
+    }
+    
+    // 显示加载状态
+    const submitBtn = document.querySelector('#joinActivityModal button[type="button"].btn-primary');
+    const originalText = submitBtn.textContent;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 提交中...';
+    submitBtn.disabled = true;
+    
+    // 调用报名API
+    fetch(`/api/activities/${activityId}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone, email, message })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('报名成功！');
+            // 关闭模态框
+            const joinModal = bootstrap.Modal.getInstance(document.getElementById('joinActivityModal'));
+            joinModal.hide();
+            // 刷新活动列表
+            loadActivities();
+        } else {
+            alert('报名失败：' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('报名请求失败:', error);
+        alert('网络错误，请重试');
+    })
+    .finally(() => {
+        // 恢复按钮状态
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
     });
 }
 
@@ -837,40 +1182,6 @@ function initPostsUI(){
                     const o = document.createElement('option'); o.value = c; o.textContent = c; sel.appendChild(o);
                 });
 
-                // 如果页面存在顶部的活动类型按钮区域，则用相同分类填充它
-                const activityBtnGroup = document.getElementById('activityTypeButtons');
-                if(activityBtnGroup){
-                    activityBtnGroup.innerHTML = '';
-                    // 全部按钮
-                    const allBtn = document.createElement('button');
-                    allBtn.type = 'button';
-                    allBtn.className = 'btn btn-primary active';
-                    allBtn.textContent = '全部';
-                    allBtn.addEventListener('click', function(){
-                        // 视觉高亮
-                        Array.from(activityBtnGroup.children).forEach(b=>b.classList.remove('active'));
-                        this.classList.add('active');
-                        filterActivities('all');
-                        loadPostsList();
-                    });
-                    activityBtnGroup.appendChild(allBtn);
-
-                    // 每个分类对应一个按钮（点击既筛选活动也筛选信息流）
-                    categories.forEach(cat => {
-                        const btn = document.createElement('button');
-                        btn.type = 'button';
-                        btn.className = 'btn btn-outline-primary';
-                        btn.textContent = cat;
-                        btn.addEventListener('click', function(){
-                            Array.from(activityBtnGroup.children).forEach(b=>b.classList.remove('active'));
-                            this.classList.add('active');
-                            filterActivities(cat);
-                            loadPostsList(cat);
-                        });
-                        activityBtnGroup.appendChild(btn);
-                    });
-                }
-
                 // 当分类改变时渲染模板字段
                 sel.addEventListener('change', function(){ renderTemplateFields(res.data[this.value]); });
             }
@@ -1063,37 +1374,146 @@ function loadPostsList(category){
 }
 
 function showPost(postId){
+    // 显示加载状态
+    const modalEl = document.getElementById('postDetailModal');
+    const modalBody = document.getElementById('postDetailBody');
+    const modalTitle = document.getElementById('postDetailTitle');
+    
+    // 重置模态框内容
+    modalTitle.textContent = '加载中...';
+    modalBody.innerHTML = `
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+            <p class="mt-3">正在加载帖子详情...</p>
+        </div>
+    `;
+    
+    // 显示模态框
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+    
+    // 获取帖子详情
     fetch(`/api/posts/${postId}`)
         .then(r=>r.json())
         .then(res=>{
-            if(!res.success){ alert('帖子不存在或已删除'); return; }
+            if(!res.success){ 
+                modalTitle.textContent = '错误';
+                modalBody.innerHTML = '<div class="alert alert-danger">帖子不存在或已删除</div>';
+                return;
+            }
             const p = res.data;
-            document.getElementById('postDetailTitle').textContent = p.title;
+            modalTitle.textContent = p.title;
             const body = document.getElementById('postDetailBody');
+            
+            // 构建详情页面内容
             let html = `<div class="mb-2 small text-muted">${escapeHtml(p.category)} · ${escapeHtml(p.created_at)}</div>`;
+            
+            // 添加作者信息
+            if(p.author_id){ 
+                html += `<div class="mb-2 small text-muted">作者：${escapeHtml(p.author_id || '未知')}</div>`;
+            }
+            
+            // 添加帖子内容
             html += `<div class="mb-3">${escapeHtml(p.content || '')}</div>`;
+            
+            // 添加媒体附件
             if(p.media && p.media.length){
                 html += '<div class="mb-2">';
                 p.media.forEach(m=>{ html += `<div><a href="${m.url}" target="_blank">${escapeHtml(m.filename)}</a></div>`; });
                 html += '</div>';
             }
-            html += `<div id="postInteractions_${p.id}" class="mt-3"><button class="btn btn-sm btn-outline-primary me-2" onclick="reactPost(${p.id}, 'like')">点赞</button><button class="btn btn-sm btn-outline-secondary me-2" onclick="reactPost(${p.id}, 'favorite')">收藏</button></div>`;
-            html += `<div class="mt-3"><h6>评论</h6><div id="commentsContainer_${p.id}">加载中...</div><div class="mt-2"><textarea id="newComment_${p.id}" class="form-control" rows="3" placeholder="写评论..."></textarea><div class="d-flex gap-2 mt-2"><button class="btn btn-sm btn-primary" onclick="submitComment(${p.id}, null)">发表评论</button></div></div></div>`;
+            
+            // 添加标签
+            if(p.tags){
+                html += '<div class="mb-3">';
+                const tagsArray = Array.isArray(p.tags) ? p.tags : p.tags.split(',');
+                tagsArray.forEach(tag => {
+                    if(tag && tag.trim()){
+                        html += `<span class="badge bg-secondary me-1 mb-1">${escapeHtml(tag.trim())}</span>`;
+                    }
+                });
+                html += '</div>';
+            }
+            
+            // 添加点赞和收藏按钮
+            html += `<div id="postInteractions_${p.id}" class="mt-3">
+                <button class="btn btn-sm btn-outline-primary me-2" onclick="reactPost(${p.id}, 'like')">点赞</button>
+                <button class="btn btn-sm btn-outline-secondary me-2" onclick="reactPost(${p.id}, 'favorite')">收藏</button>
+            </div>`;
+            
+            // 添加评论区
+            html += `<div class="mt-3">
+                <h6>评论</h6>
+                <div id="commentsContainer_${p.id}">加载中...</div>
+                <div class="mt-2">
+                    <textarea id="newComment_${p.id}" class="form-control" rows="3" placeholder="写评论..."></textarea>
+                    <div class="d-flex gap-2 mt-2">
+                        <button class="btn btn-sm btn-primary" onclick="submitComment(${p.id}, null)">发表评论</button>
+                    </div>
+                </div>
+            </div>`;
+            
             body.innerHTML = html;
-            const modalEl = document.getElementById('postDetailModal');
-            const modal = new bootstrap.Modal(modalEl);
-            modal.show();
+            
             // 加载评论
             loadComments(postId);
-        }).catch(err=>{ console.error('获取帖子详情失败', err); alert('获取帖子详情失败'); });
+        })
+        .catch(err=>{
+            console.error('获取帖子详情失败', err);
+            modalTitle.textContent = '错误';
+            modalBody.innerHTML = '<div class="alert alert-danger">获取帖子详情失败，请重试</div>';
+        });
 }
 
-function reactPost(postId, type){
-    fetch(`/api/posts/${postId}/react`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({type}) })
-        .then(r=>r.json().then(j=>({status:r.status, body:j}))).then(res=>{
-            if(res.status===401){ alert('请先登录后再互动'); window.location.href='/login'; return; }
-            if(res.status===200){ alert('操作成功'); } else { alert(res.body.error || '互动失败'); }
-        }).catch(err=>{ console.error('互动失败', err); alert('互动失败'); });
+function reactPost(postId, type) {
+    fetch(`/api/posts/${postId}/react`, { 
+        method: 'POST', 
+        headers: {'Content-Type':'application/json'}, 
+        body: JSON.stringify({type}) 
+    })
+        .then(r=>r.json().then(j=>({status:r.status, body:j})))
+        .then(res=>{
+            if(res.status===401){
+                alert('请先登录后再互动');
+                window.location.href='/login';
+                return;
+            }
+            if(res.status===200){
+                // 实时更新点赞状态和数量
+                updatePostReactionStatus(postId, type);
+            } else {
+                alert(res.body.error || '互动失败');
+            }
+        })
+        .catch(err=>{
+            console.error('互动失败', err);
+            alert('互动失败');
+        });
+}
+
+// 更新帖子反应状态和数量
+function updatePostReactionStatus(postId, type) {
+    // 更新点赞按钮状态
+    const interactionsDiv = document.getElementById(`postInteractions_${postId}`);
+    if (interactionsDiv) {
+        const likeButton = interactionsDiv.querySelector('button:first-child');
+        if (likeButton && type === 'like') {
+            // 切换按钮状态
+            if (likeButton.classList.contains('btn-outline-primary')) {
+                likeButton.classList.remove('btn-outline-primary');
+                likeButton.classList.add('btn-primary');
+                likeButton.innerHTML = '已点赞 <span class="badge bg-light text-dark ms-1">1</span>';
+            } else {
+                likeButton.classList.remove('btn-primary');
+                likeButton.classList.add('btn-outline-primary');
+                likeButton.innerHTML = '点赞';
+            }
+        }
+    }
+    
+    // 可以在这里添加更多逻辑，比如更新帖子列表中的点赞数量
 }
 
 function loadComments(postId){

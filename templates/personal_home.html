@@ -84,13 +84,35 @@
                             {% for activity in upcoming_activities %}
                                 <div class="activity-item">
                                     <h6><a href="/activity/{{ activity.id }}">{{ activity.title }}</a></h6>
-                                    <p class="text-sm text-muted">时间：{{ activity.time }}</p> <!-- 适配你项目的time字段 -->
+                                    <p class="text-sm text-muted">时间：{{ activity.time }} | 地点：{{ activity.location }}</p>
+                                    <p class="text-sm text-muted">类型：{{ activity.type }} | 参与人数：{{ activity.participant_count }}人</p>
                                 </div>
                             {% endfor %}
                         {% else %}
                             <p class="text-muted text-center">暂无待参与活动，快去报名吧！</p>
                         {% endif %}
-                        <a href="/my_activities" class="btn btn-sm btn-outline-primary float-end">查看全部</a>
+                        <button id="view-all-activities" class="btn btn-sm btn-outline-primary float-end">查看全部</button>
+                    </div>
+                </div>
+
+                <!-- 我的已报名活动列表（默认隐藏） -->
+                <div id="all-activities-section" class="card mt-4" style="display: none;">
+                    <div class="card-header bg-primary text-white">
+                        <h6 class="mb-0">我的已报名活动</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="activities-loading" style="display: none; text-align: center; padding: 20px;">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                            <p class="mt-2">加载中，请稍候...</p>
+                        </div>
+                        <div id="activities-empty" style="display: none; text-align: center; padding: 20px;">
+                            <p class="text-muted">暂无已报名活动</p>
+                        </div>
+                        <div id="activities-list">
+                            <!-- 活动列表将通过JavaScript动态生成 -->
+                        </div>
                     </div>
                 </div>
 
@@ -137,9 +159,9 @@
                                 {% if latest_posts %}
                                     {% for post in latest_posts %}
                                         <div class="post-item">
-                                            <h6><a href="/post_detail/{{ post.id }}">{{ post.title|truncate(20) }}</a></h6>
-                                            <p class="text-sm text-muted">{{ post.created_at }}</p> <!-- 适配Post表的创建时间字段 -->
-                                        </div>
+                        <h6><a href="/post/{{ post.id }}">{{ post.title|truncate(20) }}</a></h6>
+                        <p class="text-sm text-muted">{{ post.created_at }}</p> <!-- 适配Post表的创建时间字段 -->
+                    </div>
                                     {% endfor %}
                                 {% else %}
                                     <p class="text-muted text-center">暂无最新帖子</p>
@@ -177,6 +199,65 @@
                 alert('网络错误，请重试');
             }
         }
+
+        // 查看全部已报名活动
+        document.addEventListener('DOMContentLoaded', function() {
+            const viewAllBtn = document.getElementById('view-all-activities');
+            const allActivitiesSection = document.getElementById('all-activities-section');
+            const activitiesLoading = document.getElementById('activities-loading');
+            const activitiesEmpty = document.getElementById('activities-empty');
+            const activitiesList = document.getElementById('activities-list');
+
+            if (viewAllBtn) {
+                viewAllBtn.addEventListener('click', async function() {
+                    // 显示加载状态
+                    activitiesLoading.style.display = 'block';
+                    activitiesEmpty.style.display = 'none';
+                    activitiesList.innerHTML = '';
+
+                    try {
+                        // 调用API获取用户已报名的活动列表
+                        const res = await fetch('/api/user/joined-activities', {
+                            method: 'GET',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        const data = await res.json();
+
+                        // 隐藏加载状态
+                        activitiesLoading.style.display = 'none';
+
+                        if (data.success) {
+                            // 显示已报名活动列表
+                            allActivitiesSection.style.display = 'block';
+
+                            if (data.data && data.data.length > 0) {
+                                // 生成活动列表
+                                data.data.forEach(activity => {
+                                    const activityItem = document.createElement('div');
+                                    activityItem.className = 'activity-item';
+                                    activityItem.innerHTML = `
+                                        <h6><a href="/activity/${activity.id}">${activity.title}</a></h6>
+                                        <p class="text-sm text-muted">时间：${activity.time} | 地点：${activity.location}</p>
+                                        <p class="text-sm text-muted">类型：${activity.type} | 参与人数：${activity.participant_count}人</p>
+                                    `;
+                                    activitiesList.appendChild(activityItem);
+                                });
+                            } else {
+                                // 显示空数据提示
+                                activitiesEmpty.style.display = 'block';
+                            }
+                        } else {
+                            alert(data.error || '获取活动列表失败，请重试');
+                        }
+                    } catch (e) {
+                        console.error('获取活动列表失败', e);
+                        activitiesLoading.style.display = 'none';
+                        alert('网络错误，请重试');
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>

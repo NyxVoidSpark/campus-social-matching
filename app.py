@@ -991,13 +991,13 @@ def get_activity(activity_id: int):
 def create_activity():
     if not request.json:
         return jsonify({"success": False, "error": "请求数据为空或格式不正确"}), 400
-    
+
     data = request.get_json()
     required_fields = ["title", "type", "time", "location"]
     for field in required_fields:
         if field not in data or not data[field]:
             return jsonify({"success": False, "error": f"缺少必要字段: {field}"}), 400
-    
+
     # 生成新活动
     new_activity = Activity(
         title=data["title"],
@@ -1010,10 +1010,10 @@ def create_activity():
         status=data.get("status", "upcoming") or "upcoming",
         participant_count=0
     )
-    
+
     db.session.add(new_activity)
     db.session.commit()
-    
+
     return jsonify({
         "success": True,
         "message": "活动创建成功",
@@ -1025,6 +1025,59 @@ def create_activity():
             "location": new_activity.location
         }
     }), 201
+
+# 搜索活动接口
+@app.route('/api/activities/search', methods=['GET'])
+def search_activities():
+    keyword = request.args.get('keyword', '').strip()
+    activity_type = request.args.get('type', 'all')
+    
+    # 构建查询
+    query = Activity.query
+    
+    # 应用关键词搜索
+    if keyword:
+        query = query.filter(
+            db.or_(
+                Activity.title.contains(keyword),
+                Activity.location.contains(keyword),
+                Activity.tags.contains(keyword),
+                Activity.description.contains(keyword)
+            )
+        )
+    
+    # 应用类型筛选
+    if activity_type != 'all':
+        query = query.filter(Activity.type == activity_type)
+    
+    # 执行查询并按创建时间倒序排序
+    activities = query.order_by(Activity.created_at.desc()).all()
+    
+    # 构建响应数据
+    current_user = find_user_by_id(session.get("user_id")) if session.get("user_id") else None
+    result = []
+    for act in activities:
+        is_favorited = False
+        if current_user:
+            try:
+                is_favorited = act in current_user.favorite_activities
+            except Exception:
+                is_favorited = False
+        result.append({
+            "id": act.id,
+            "title": act.title,
+            "type": act.type,
+            "time": act.time,
+            "location": act.location,
+            "tags": act.tags,
+            "description": act.description,
+            "initiator_id": act.initiator_id,
+            "participants_count": len(act.participants) if hasattr(act, 'participants') else 0,
+            "is_favorited": is_favorited,
+            "created_at": act.created_at
+        })
+    
+    return jsonify({"success": True, "data": result, "count": len(result)}), 200
 
 # 活动删除接口（仅教师可删除）
 @app.route('/api/activities/<int:activity_id>', methods=['DELETE'])
@@ -1130,120 +1183,8 @@ def favorite_activity(activity_id: int):
         }
     })
 
-# 活动搜索接口
-@app.route("/api/activities/search", methods=["GET"])
-@login_required
-def search_activities():
-    # 获取搜索参数
-    keyword = request.args.get('keyword', '').strip()
-    search_type = request.args.get('type', 'all')
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-    location = request.args.get('location', '').strip()
-    tags = request.args.get('tags', '').strip()
-    sort_by = request.args.get('sort_by', 'newest')
-    min_participants = request.args.get('min_participants', type=int)
-    max_participants = request.args.get('max_participants', type=int)
-    
-    # 构建查询条件
-    query = Activity.query
-    
-    # 类型筛选
-    if search_type and search_type != 'all':
-        query = query.filter(Activity.type == search_type)
-    
-    # 关键词搜索
-    if keyword:
-        keyword = f"%{keyword}%"
-        query = query.filter(
-            db.or_(
-                Activity.title.like(keyword), 
-                Activity.location.like(keyword),
-                Activity.description.like(keyword)
-            )
-        )
-    
-    # 地点搜索
-    if location:
-        location = f"%{location}%"
-        query = query.filter(Activity.location.like(location))
-    
-    # 标签搜索
-    if tags:
-        tag_conditions = []
-        for tag in tags.split(','):
-            tag = tag.strip()
-            if tag:
-                tag_conditions.append(Activity.tags.like(f"%{tag}%"))
-        if tag_conditions:
-            query = query.filter(db.or_(*tag_conditions))
-    
-    # 日期范围筛选
-    if date_from:
-        try:
-            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
-            query = query.filter(Activity.time >= date_from_obj.strftime('%Y-%m-%d %H:%M:%S'))
-        except ValueError:
-            pass
-    
-    if date_to:
-        try:
-            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
-            # 设置为当天的结束时间
-            date_to_obj = date_to_obj.replace(hour=23, minute=59, second=59)
-            query = query.filter(Activity.time <= date_to_obj.strftime('%Y-%m-%d %H:%M:%S'))
-        except ValueError:
-            pass
-    
-    # 参与人数筛选
-    if min_participants is not None:
-        query = query.filter(db.func.length(Activity.participants) >= min_participants)
-    
-    if max_participants is not None:
-        query = query.filter(db.func.length(Activity.participants) <= max_participants)
-    
-    # 排序
-    if sort_by == 'newest':
-        query = query.order_by(Activity.id.desc())
-    elif sort_by == 'oldest':
-        query = query.order_by(Activity.id.asc())
-    elif sort_by == 'most_participants':
-        # 简化排序，按ID降序（实际应该按参与人数排序）
-        query = query.order_by(Activity.id.desc())
-    elif sort_by == 'upcoming':
-        query = query.filter(Activity.time >= datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        query = query.order_by(Activity.time.asc())
-    
-    activities = query.all()
-    result = []
-    
-    for act in activities:
-        result.append({
-            "id": act.id,
-            "title": act.title,
-            "type": act.type,
-            "time": act.time,
-            "location": act.location,
-            "description": act.description,
-            "tags": act.tags.split(',') if act.tags else [],
-            "participants_count": len(act.participants),
-            "created_at": act.created_at
-        })
-    
-    return jsonify({
-        "success": True,
-        "data": result,
-        "count": len(result),
-        "search_info": {
-            "keyword": keyword.strip('%') if keyword else '',
-            "type": search_type,
-            "location": location,
-            "tags": tags,
-            "date_from": date_from,
-            "date_to": date_to,
-            "sort_by": sort_by
-        }
-    })
+
+
 
 # 活动推荐接口
 @app.route('/api/activities/recommend', methods=['GET'])
@@ -2814,11 +2755,9 @@ def personal_home():
     if not current_user:
         return redirect(url_for('login_page'))
     
-    # 模块1：获取用户待参与活动（用户已报名 + 未开始）
-    upcoming_activities = [
-        a for a in (current_user.joined_activities or [])
-        if (a.status or "upcoming") == "upcoming"
-    ]
+    # 模块1：获取用户待参与活动（用户已报名的所有活动）
+    upcoming_activities = list(current_user.joined_activities or [])
+    # 按时间排序，优先显示即将开始的活动
     upcoming_activities.sort(key=lambda a: a.time or "")
     upcoming_activities = upcoming_activities[:5]
     
@@ -3216,4 +3155,4 @@ def get_post_stats():
 # ---------------------------- 运行应用 ----------------------------
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='0.0.0.0', port=5001,allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=True, host='127.0.0.1', port=5001,allow_unsafe_werkzeug=True)
