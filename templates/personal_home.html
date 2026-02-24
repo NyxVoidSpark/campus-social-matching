@@ -158,13 +158,16 @@
                             <div class="card-body">
                                 {% if latest_posts %}
                                     {% for post in latest_posts %}
-                                        <div class="post-item">
-                        <h6><a href="/post/{{ post.id }}">{{ post.title|truncate(20) }}</a></h6>
-                        <p class="text-sm text-muted">{{ post.created_at }}</p> <!-- 适配Post表的创建时间字段 -->
-                    </div>
+                                        <div class="post-item" data-post-id="{{ post.id }}">
+                                            <h6 class="post-title" style="cursor: pointer;">{{ post.title|truncate(20) }}</h6>
+                                            <p class="text-sm text-muted">{{ post.created_at }}</p> <!-- 适配Post表的创建时间字段 -->
+                                            <div class="post-content mt-2" style="display: none; padding: 10px; background-color: #f8f9fa; border-radius: 4px;">
+                                                <!-- 帖子详细内容将通过JavaScript动态加载 -->
+                                            </div>
+                                        </div>
                                     {% endfor %}
                                 {% else %}
-                                    <p class="text-muted text-center">暂无最新帖子</p>
+                                    <p class="text-muted text-center">暂无帖子</p>
                                 {% endif %}
                             </div>
                         </div>
@@ -257,7 +260,59 @@
                     }
                 });
             }
+
+            // 帖子点击事件处理
+            const postTitles = document.querySelectorAll('.post-title');
+            postTitles.forEach(title => {
+                title.addEventListener('click', async function() {
+                    const postItem = this.closest('.post-item');
+                    const postId = postItem.dataset.postId;
+                    const postContent = postItem.querySelector('.post-content');
+
+                    // 切换显示/隐藏状态
+                    if (postContent.style.display === 'none') {
+                        // 显示加载状态
+                        postContent.innerHTML = '<div class="text-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">加载中...</span></div><p class="mt-2">加载中，请稍候...</p></div>';
+                        postContent.style.display = 'block';
+
+                        try {
+                            // 调用API获取帖子详情
+                            const res = await fetch(`/api/posts/${postId}`, {
+                                method: 'GET',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' }
+                            });
+                            const data = await res.json();
+
+                            if (data.success) {
+                                const post = data.data;
+                                // 显示帖子详细内容
+                                postContent.innerHTML = `
+                                    <h6 class="mb-2">${post.title}</h6>
+                                    <p class="text-sm text-muted mb-2">发布时间：${post.created_at}</p>
+                                    <div class="mb-2">${post.content}</div>
+                                    <button class="btn btn-sm btn-outline-secondary mt-2" onclick="hidePostContent(this)">收起</button>
+                                `;
+                            } else {
+                                postContent.innerHTML = `<p class="text-danger">${data.error || '获取帖子详情失败'}</p>`;
+                            }
+                        } catch (e) {
+                            console.error('获取帖子详情失败', e);
+                            postContent.innerHTML = '<p class="text-danger">网络错误，请重试</p>';
+                        }
+                    } else {
+                        // 隐藏内容
+                        postContent.style.display = 'none';
+                    }
+                });
+            });
         });
+
+        // 收起帖子内容
+        function hidePostContent(btn) {
+            const postContent = btn.closest('.post-content');
+            postContent.style.display = 'none';
+        }
     </script>
 </body>
 </html>

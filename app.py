@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for, s
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import or_ as db_or
+from sqlalchemy import or_ as db_or, and_ as db_and
 import os
 from dotenv import load_dotenv
 import uuid
@@ -419,6 +419,80 @@ def find_similar_posts(title: str, content: str, threshold: float = 0.75):
     candidates.sort(key=lambda x: x['score'], reverse=True)
     return candidates
 
+def get_posts_query(keyword='', category='all', author='', tags='', date_from='', date_to='', sort_by='newest', has_attachments=False):
+    """获取帖子查询对象，用于论坛页面和搜索API的共用逻辑"""
+    # 构建查询条件
+    query = Post.query.filter(Post.review_status == 'approved')  # 只搜索已审核的帖子
+    
+    # 分类筛选
+    if category and category != 'all':
+        query = query.filter(Post.category == category)
+    
+    # 关键词搜索
+    if keyword:
+        query = query.filter(
+            db_or(
+                Post.title.contains(keyword),
+                Post.content.contains(keyword),
+                Post.tags.contains(keyword)
+            )
+        )
+    
+    # 作者搜索
+    if author:
+        query = query.filter(
+            db_and(
+                User.username.contains(author),
+                Post.author_id == User.id
+            )
+        )
+    
+    # 标签搜索
+    if tags:
+        tag_conditions = []
+        for tag in tags.split(','):
+            tag = tag.strip()
+            if tag:
+                tag_conditions.append(Post.tags.contains(tag))
+        if tag_conditions:
+            query = query.filter(db_or(*tag_conditions))
+    
+    # 日期范围筛选
+    if date_from:
+        try:
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
+            query = query.filter(Post.created_at >= date_from_obj.strftime('%Y-%m-%d'))
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
+            query = query.filter(Post.created_at <= date_to_obj.strftime('%Y-%m-%d 23:59:59'))
+        except ValueError:
+            pass
+    
+    # 附件筛选
+    if has_attachments:
+        query = query.filter(Post.attachments.isnot(None))
+    
+    # 排序
+    if sort_by == 'newest':
+        query = query.order_by(Post.created_at.desc())
+    elif sort_by == 'oldest':
+        query = query.order_by(Post.created_at.asc())
+    elif sort_by == 'most_commented':
+        # 需要计算评论数，这里简化
+        query = query.order_by(Post.created_at.desc())
+    elif sort_by == 'hottest':
+        # 简单的热度排序，暂时用时间排序
+        query = query.order_by(Post.created_at.desc())
+    elif sort_by == 'most_replied':
+        # 根据评论数排序，暂时用时间排序
+        query = query.order_by(Post.created_at.desc())
+    
+    return query
+
 def is_teacher(user_id):
     """检查是否为教师"""
     user = find_user_by_id(user_id)
@@ -567,28 +641,12 @@ def forum_page():
     sort_by = request.args.get('sort', 'newest')  # newest, hottest, most_replied
     search = request.args.get('search', '').strip()
     
-    query = Post.query.filter_by(review_status='approved')
-    
-    if category:
-        query = query.filter_by(category=category)
-    
-    if search:
-        # 搜索标题或内容
-        query = query.filter(
-            db_or(
-                Post.title.contains(search),
-                Post.content.contains(search)
-            )
-        )
-    
-    if sort_by == 'newest':
-        query = query.order_by(Post.created_at.desc())
-    elif sort_by == 'hottest':
-        # 简单的热度排序，可以根据点赞数等计算
-        query = query.order_by(Post.created_at.desc())  # 暂时用时间排序
-    elif sort_by == 'most_replied':
-        # 根据评论数排序
-        query = query.order_by(Post.created_at.desc())  # 暂时用时间排序
+    # 使用共用的查询逻辑
+    query = get_posts_query(
+        keyword=search,
+        category=category,
+        sort_by=sort_by
+    )
     
     posts = query.paginate(page=page, per_page=20, error_out=False)
     
@@ -1430,70 +1488,17 @@ def search_posts():
     sort_by = request.args.get('sort_by', 'newest')
     has_attachments = request.args.get('has_attachments', '').lower() == 'true'
     
-    # 构建查询条件
-    query = Post.query.filter(Post.review_status == 'approved')  # 只搜索已审核的帖子
-    
-    # 分类筛选
-    if category and category != 'all':
-        query = query.filter(Post.category == category)
-    
-    # 关键词搜索
-    if keyword:
-        keyword = f"%{keyword}%"
-        query = query.filter(
-            db.or_(
-                Post.title.like(keyword),
-                Post.content.like(keyword)
-            )
-        )
-    
-    # 作者搜索
-    if author:
-        author = f"%{author}%"
-        query = query.filter(
-            db.and_(
-                User.username.like(author),
-                Post.author_id == User.id
-            )
-        )
-    
-    # 标签搜索
-    if tags:
-        tag_conditions = []
-        for tag in tags.split(','):
-            tag = tag.strip()
-            if tag:
-                tag_conditions.append(Post.tags.like(f"%{tag}%"))
-        if tag_conditions:
-            query = query.filter(db.or_(*tag_conditions))
-    
-    # 日期范围筛选
-    if date_from:
-        try:
-            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d')
-            query = query.filter(Post.created_at >= date_from_obj.strftime('%Y-%m-%d'))
-        except ValueError:
-            pass
-    
-    if date_to:
-        try:
-            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d')
-            query = query.filter(Post.created_at <= date_to_obj.strftime('%Y-%m-%d 23:59:59'))
-        except ValueError:
-            pass
-    
-    # 附件筛选
-    if has_attachments:
-        query = query.filter(Post.attachments.isnot(None))
-    
-    # 排序
-    if sort_by == 'newest':
-        query = query.order_by(Post.created_at.desc())
-    elif sort_by == 'oldest':
-        query = query.order_by(Post.created_at.asc())
-    elif sort_by == 'most_commented':
-        # 需要计算评论数，这里简化
-        query = query.order_by(Post.created_at.desc())
+    # 使用共用的查询逻辑
+    query = get_posts_query(
+        keyword=keyword,
+        category=category,
+        author=author,
+        tags=tags,
+        date_from=date_from,
+        date_to=date_to,
+        sort_by=sort_by,
+        has_attachments=has_attachments
+    )
     
     # 分页
     page = request.args.get('page', 1, type=int)
@@ -2766,8 +2771,8 @@ def personal_home():
         db.or_(Activity.status == "upcoming", Activity.status == None)  # noqa: E711
     ).order_by(Activity.participant_count.desc(), Activity.id.desc()).limit(6).all()
     
-    # 模块3：获取最新校园帖子（按创建时间降序排序，保持原有逻辑）
-    latest_posts = Post.query.order_by(Post.created_at.desc()).limit(4).all()  # 若你Post表创建时间字段是其他名称，可留言调整
+    # 模块3：获取最新校园帖子（只显示审核通过的，按创建时间降序排序）
+    latest_posts = Post.query.filter_by(review_status='approved').order_by(Post.created_at.desc()).limit(4).all()
 
     favorite_ids = set([a.id for a in (current_user.favorite_activities or [])])
     
@@ -3155,4 +3160,4 @@ def get_post_stats():
 # ---------------------------- 运行应用 ----------------------------
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, host='127.0.0.1', port=5001,allow_unsafe_werkzeug=True)
+    app.run(debug=True, host='127.0.0.1', port=5001)
